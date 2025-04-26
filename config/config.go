@@ -48,7 +48,6 @@ func LoadCryptoKeys() (keys CryptoKeys, err error) {
 	if err != nil {
 		return keys, fmt.Errorf("error reading client public key: %w", err)
 	}
-	fmt.Println("Client public key bytes:", string(clientPubKeyBytes))
 	clientPubKeyBlock, _ := pem.Decode(clientPubKeyBytes)
 	if clientPubKeyBlock == nil {
 		return keys, fmt.Errorf("failed to decode client public key PEM")

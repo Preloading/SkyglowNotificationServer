@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
+	db "github.com/Preloading/SkyglowNotificationServer/database"
 	"github.com/Preloading/SkyglowNotificationServer/tcpproto"
 )
 
@@ -19,6 +20,9 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("Loaded config successfully")
+
+	// Initialize the database connection
+	db.InitDB("sqlite.db")
 
 	fmt.Println("Starting Server...")
 	tcpproto.CreateTCPServer(uint16(config.TCPPort), keys)
