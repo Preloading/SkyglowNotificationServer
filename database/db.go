@@ -2,6 +2,7 @@ package db
 
 import (
 	"log"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -17,18 +18,20 @@ type UnacknowledgedMessages struct {
 	MessageId  string `gorm:"index"`
 	DeviceUUID string
 	Message    string
-	CreatedAt  string `gorm:"autoCreateTime"`
+	Topic      string
+	CreatedAt  time.Time `gorm:"autoCreateTime"`
 }
 
 type Devices struct {
 	gorm.Model
-	ID   int    `gorm:"primaryKey"`
-	UUID string `gorm:"index"`
+	UUID      string `gorm:"primaryKey"`
+	PublicKey string
 }
 
 func InitDB(dsn string) {
 	// Initialize the database connection
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	var err error
+	db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 		panic(err)
@@ -42,11 +45,13 @@ func AckMessage(message_id string) {
 	db.Delete(&UnacknowledgedMessages{}, "message_id = ?", message_id)
 }
 
-func AddMessage(message_id string, device_uuid string, message string) {
+func AddMessage(message_id string, message string, device_uuid string, topic string) {
 	db.Create(&UnacknowledgedMessages{
 		MessageId:  message_id,
 		DeviceUUID: device_uuid,
 		Message:    message,
+		Topic:      topic,
+		CreatedAt:  time.Now(),
 	})
 }
 func GetUnacknowledgedMessages(device_uuid string) []UnacknowledgedMessages {

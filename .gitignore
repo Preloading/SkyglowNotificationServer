@@ -21,3 +21,5 @@
 go.work
 keys
 *.db
+__debug_bin*
+.vscode

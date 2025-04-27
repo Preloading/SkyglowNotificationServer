@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
+	db "github.com/Preloading/SkyglowNotificationServer/database"
+	"github.com/Preloading/SkyglowNotificationServer/router"
 )
 
 var (
@@ -39,6 +43,9 @@ func CreateTCPServer(port uint16, _keys config.CryptoKeys) {
 func handleConnection(c net.Conn) {
 	log.Printf("Client Connected: %s\n", c.RemoteAddr().String())
 	defer c.Close()
+	connectionUUID := ""
+	channel := make(chan router.DataUpdate)
+	defer close(channel)
 
 	// Create a buffer for reading chunks
 	buffer := make([]byte, 1024)
@@ -63,10 +70,96 @@ func handleConnection(c net.Conn) {
 		// Handling
 		if strings.HasPrefix(decryptedStr, "ACK:") {
 			// Handle ACK
+			if connectionUUID == "" {
+				fmt.Println("ACK received but no UUID set, ignoring...")
+				continue
+			}
+
+			db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"))
+
 			fmt.Println("Received ACK:", decryptedStr)
 		} else {
 			// Is a UUID
 			// I could check if it's correct but that lame
+			if connectionUUID == "" {
+				connectionUUID = decryptedStr
+				fmt.Println("Connection UUID set:", connectionUUID)
+
+				// Make a channel to receive messages
+				router.AddConnection(connectionUUID, channel)
+				defer router.RemoveConnection(connectionUUID)
+				go func() {
+					for {
+						select {
+						case msg := <-channel:
+							// Check if the channel is closed
+							if msg.Disconnect {
+								log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
+								return
+							}
+							log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
+							dataJson, err := json.Marshal(msg.DataToSend)
+							if err != nil {
+								log.Printf("JSON Marshal error: %v\n", err)
+								continue
+							}
+
+							// Send the message to the TCP connection
+							encrypted, err := encryptWithPubKey([]byte(dataJson), keys.ClientPublicKey)
+							if err != nil {
+								log.Printf("Encryption error: %v\n", err)
+								continue
+							}
+
+							base64Data := base64.StdEncoding.EncodeToString(*encrypted)
+
+							_, err = c.Write([]byte(base64Data))
+							if err != nil {
+								log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+								return
+							}
+						}
+					}
+				}()
+
+			}
+			if connectionUUID != decryptedStr {
+				fmt.Println("UUID mismatch, disconnecting...")
+				return
+			}
+
+			// Send messages that haven't been ACKed
+			messages := db.GetUnacknowledgedMessages(connectionUUID)
+			if len(messages) == 0 {
+				continue
+			}
+			for _, message := range messages {
+				log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
+				dataJson, err := json.Marshal(router.DataToSend{
+					Message: message.Message,
+					Topic:   message.Topic,
+				})
+
+				if err != nil {
+					log.Printf("JSON Marshal error: %v\n", err)
+					continue
+				}
+
+				// Send the message to the TCP connection
+				encrypted, err := encryptWithPubKey([]byte(dataJson), keys.ClientPublicKey)
+				if err != nil {
+					log.Printf("Encryption error: %v\n", err)
+					continue
+				}
+
+				base64Data := base64.StdEncoding.EncodeToString(*encrypted)
+
+				_, err = c.Write([]byte(base64Data))
+				if err != nil {
+					log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+					return
+				}
+			}
 
 		}
 
@@ -87,4 +180,20 @@ func decryptWithPrivateKey(data []byte, pkey *rsa.PrivateKey) (*[]byte, error) {
 	}
 
 	return &decrypted, nil
+}
+
+func encryptWithPubKey(data []byte, key *rsa.PublicKey) (*[]byte, error) {
+	// Decrypt the data using PKCS1 OAEP
+	encrypted, err := rsa.EncryptOAEP(
+		sha1.New(),
+		rand.Reader,
+		key,
+		data,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("decryption error: %w", err)
+	}
+
+	return &encrypted, nil
 }
