@@ -77,7 +77,7 @@ func handleConnection(c net.Conn) {
 				continue
 			}
 
-			db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"))
+			db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"), connectionUUID)
 
 			fmt.Println("Received ACK:", decryptedStr)
 		} else {

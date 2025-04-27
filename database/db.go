@@ -41,8 +41,8 @@ func InitDB(dsn string) {
 	db.AutoMigrate(&Devices{})
 }
 
-func AckMessage(message_id string) {
-	db.Delete(&UnacknowledgedMessages{}, "message_id = ?", message_id)
+func AckMessage(message_id string, device_uuid string) {
+	db.Delete(&UnacknowledgedMessages{}, "message_id = ? device_uuid = ?", message_id, device_uuid)
 }
 
 func AddMessage(message_id string, message string, device_uuid string, topic string) {
