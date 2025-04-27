@@ -13,7 +13,11 @@ import (
 )
 
 type Config struct {
-	TCPPort int `mapstructure:"TCP_PORT"`
+	TCPPort          int      `mapstructure:"TCP_PORT"`
+	WhitelistedUUIDs []string `mapstructure:"WHITELISTED_UUIDS"`
+	BlacklistUUIDs   []string `mapstructure:"BLACKLISTED_UUIDS"`
+	WhitelistOn      bool     `mapstructure:"WHITELIST_ON"`
+	DB_DSN           string   `mapstructure:"DB_DSN"`
 }
 
 type CryptoKeys struct {
@@ -97,4 +101,22 @@ func LoadCryptoKeys() (keys CryptoKeys, err error) {
 	keys.ServerPrivateKey = serverPrivKey
 
 	return keys, nil
+}
+
+func IsWhitelisted(uuid string, _config Config) bool {
+	for _, allowed := range _config.WhitelistedUUIDs {
+		if allowed == uuid {
+			return true
+		}
+	}
+	return false
+}
+
+func IsBlacklisted(uuid string, _config Config) bool {
+	for _, allowed := range _config.BlacklistUUIDs {
+		if allowed == uuid {
+			return true
+		}
+	}
+	return false
 }

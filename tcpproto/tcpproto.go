@@ -18,11 +18,13 @@ import (
 )
 
 var (
-	keys config.CryptoKeys
+	keys       config.CryptoKeys
+	configData config.Config
 )
 
-func CreateTCPServer(port uint16, _keys config.CryptoKeys) {
+func CreateTCPServer(port uint16, _keys config.CryptoKeys, _config config.Config) {
 	keys = _keys
+	configData = _config
 	PORTSTR := ":" + strconv.FormatUint(uint64(port), 10)
 	l, err := net.Listen("tcp4", PORTSTR)
 	if err != nil {
@@ -83,6 +85,15 @@ func handleConnection(c net.Conn) {
 			// I could check if it's correct but that lame
 			if connectionUUID == "" {
 				connectionUUID = decryptedStr
+				if configData.WhitelistOn {
+					if !config.IsWhitelisted(connectionUUID, configData) {
+						return
+					}
+				} else {
+					if config.IsBlacklisted(connectionUUID, configData) {
+						return
+					}
+				}
 				fmt.Println("Connection UUID set:", connectionUUID)
 
 				// Make a channel to receive messages
