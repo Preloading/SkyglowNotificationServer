@@ -45,7 +45,7 @@ func InitDB(dsn string) {
 }
 
 func AckMessage(message_id string, device_uuid string) {
-	db.Delete(&UnacknowledgedMessages{}, "message_id = ? device_uuid = ?", message_id, device_uuid)
+	db.Delete(&UnacknowledgedMessages{}, "message_id = ? AND device_uuid = ?", message_id, device_uuid)
 }
 
 func AddMessage(message_id string, message string, device_uuid string, topic string) {
