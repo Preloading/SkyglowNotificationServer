@@ -1,6 +1,9 @@
 package db
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
+	"fmt"
 	"log"
 	"time"
 
@@ -54,6 +57,42 @@ func AddMessage(message_id string, message string, device_uuid string, topic str
 		CreatedAt:  time.Now(),
 	})
 }
+
+func CreateUser(uuid string, public_key rsa.PublicKey) error {
+	encodedPubKey, err := x509.MarshalPKIXPublicKey(&public_key)
+	if err != nil {
+		return err
+	}
+
+	db.Create(&Devices{
+		UUID:      uuid,
+		PublicKey: string(encodedPubKey),
+	})
+	return nil
+}
+
+func GetUser(uuid string) (*rsa.PublicKey, error) {
+	var device Devices
+	result := db.First(&device, "uuid = ?", uuid)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	// Decode the public key
+	var err error
+	parsedKey, err := x509.ParsePKIXPublicKey([]byte(device.PublicKey))
+	if err != nil {
+		return nil, err
+	}
+
+	pubKey, ok := parsedKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("key is not an RSA public key")
+	}
+
+	return pubKey, nil
+}
+
 func GetUnacknowledgedMessages(device_uuid string) []UnacknowledgedMessages {
 	var messages []UnacknowledgedMessages
 	db.Find(&messages)

@@ -47,6 +47,7 @@ func handleConnection(c net.Conn) {
 	defer c.Close()
 	connectionUUID := ""
 	channel := make(chan router.DataUpdate)
+	var rsaClientPublicKey *rsa.PublicKey
 	defer close(channel)
 
 	// Create a buffer for reading chunks
@@ -95,6 +96,16 @@ func handleConnection(c net.Conn) {
 					}
 				}
 				fmt.Println("Connection UUID set:", connectionUUID)
+				pubKey, err := db.GetUser(connectionUUID)
+				if err != nil {
+					log.Printf("Error getting public key for UUID %s: %v\n", connectionUUID, err)
+					return
+				}
+				if pubKey == nil {
+					log.Printf("No public key found for UUID %s\n", connectionUUID)
+					return
+				}
+				rsaClientPublicKey = pubKey
 
 				// Make a channel to receive messages
 				router.AddConnection(connectionUUID, channel)
@@ -116,7 +127,7 @@ func handleConnection(c net.Conn) {
 							}
 
 							// Send the message to the TCP connection
-							encrypted, err := encryptWithPubKey([]byte(dataJson), keys.ClientPublicKey)
+							encrypted, err := encryptWithPubKey([]byte(dataJson), rsaClientPublicKey)
 							if err != nil {
 								log.Printf("Encryption error: %v\n", err)
 								continue
@@ -157,7 +168,7 @@ func handleConnection(c net.Conn) {
 				}
 
 				// Send the message to the TCP connection
-				encrypted, err := encryptWithPubKey([]byte(dataJson), keys.ClientPublicKey)
+				encrypted, err := encryptWithPubKey([]byte(dataJson), rsaClientPublicKey)
 				if err != nil {
 					log.Printf("Encryption error: %v\n", err)
 					continue
