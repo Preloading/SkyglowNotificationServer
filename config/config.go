@@ -21,8 +21,6 @@ type Config struct {
 }
 
 type CryptoKeys struct {
-	ClientPublicKey *rsa.PublicKey
-
 	ServerPrivateKey *rsa.PrivateKey
 	ServerPublicKey  *rsa.PublicKey
 }
@@ -47,25 +45,6 @@ func LoadConfig() (config Config, err error) {
 }
 
 func LoadCryptoKeys() (keys CryptoKeys, err error) {
-	// Load client public key
-	clientPubKeyBytes, err := os.ReadFile("keys/client_public_key.pem")
-	if err != nil {
-		return keys, fmt.Errorf("error reading client public key: %w", err)
-	}
-	clientPubKeyBlock, _ := pem.Decode(clientPubKeyBytes)
-	if clientPubKeyBlock == nil {
-		return keys, fmt.Errorf("failed to decode client public key PEM")
-	}
-	genericPubKey, err := x509.ParsePKIXPublicKey(clientPubKeyBlock.Bytes)
-	if err != nil {
-		return keys, fmt.Errorf("error parsing client public key: %w", err)
-	}
-	clientPubKey, ok := genericPubKey.(*rsa.PublicKey)
-	if !ok {
-		return keys, fmt.Errorf("client public key is not an RSA key")
-	}
-	keys.ClientPublicKey = clientPubKey
-
 	// Load server public key
 	serverPubKeyBytes, err := os.ReadFile("keys/server_public_key.pem")
 	if err != nil {
@@ -75,7 +54,7 @@ func LoadCryptoKeys() (keys CryptoKeys, err error) {
 	if serverPubKeyBlock == nil {
 		return keys, fmt.Errorf("failed to decode server public key PEM")
 	}
-	genericPubKey, err = x509.ParsePKIXPublicKey(serverPubKeyBlock.Bytes)
+	genericPubKey, err := x509.ParsePKIXPublicKey(serverPubKeyBlock.Bytes)
 	if err != nil {
 		return keys, fmt.Errorf("error parsing server public key: %w", err)
 	}

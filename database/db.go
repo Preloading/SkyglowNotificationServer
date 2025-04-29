@@ -95,6 +95,6 @@ func GetUser(uuid string) (*rsa.PublicKey, error) {
 
 func GetUnacknowledgedMessages(device_uuid string) []UnacknowledgedMessages {
 	var messages []UnacknowledgedMessages
-	db.Find(&messages)
+	db.Find(&messages, "device_uuid = ?", device_uuid)
 	return messages
 }

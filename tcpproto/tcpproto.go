@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -120,24 +121,12 @@ func handleConnection(c net.Conn) {
 								return
 							}
 							log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
-							dataJson, err := json.Marshal(msg.DataToSend)
-							if err != nil {
-								log.Printf("JSON Marshal error: %v\n", err)
-								continue
-							}
-
-							// Send the message to the TCP connection
-							encrypted, err := encryptWithPubKey([]byte(dataJson), rsaClientPublicKey)
-							if err != nil {
-								log.Printf("Encryption error: %v\n", err)
-								continue
-							}
-
-							base64Data := base64.StdEncoding.EncodeToString(*encrypted)
-
-							_, err = c.Write([]byte(base64Data))
-							if err != nil {
-								log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+							if err := sendNotificationToClient(c, msg.DataToSend, rsaClientPublicKey); err != nil {
+								if err.Error() == "write error" {
+									log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
+									return
+								}
+								log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
 								return
 							}
 						}
@@ -157,35 +146,40 @@ func handleConnection(c net.Conn) {
 			}
 			for _, message := range messages {
 				log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
-				dataJson, err := json.Marshal(router.DataToSend{
+
+				sendNotificationToClient(c, router.DataToSend{
 					Message: message.Message,
 					Topic:   message.Topic,
-				})
-
-				if err != nil {
-					log.Printf("JSON Marshal error: %v\n", err)
-					continue
-				}
-
-				// Send the message to the TCP connection
-				encrypted, err := encryptWithPubKey([]byte(dataJson), rsaClientPublicKey)
-				if err != nil {
-					log.Printf("Encryption error: %v\n", err)
-					continue
-				}
-
-				base64Data := base64.StdEncoding.EncodeToString(*encrypted)
-
-				_, err = c.Write([]byte(base64Data))
-				if err != nil {
-					log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
-					return
-				}
+				}, rsaClientPublicKey)
 			}
 
 		}
 
 	}
+}
+
+func sendNotificationToClient(c net.Conn, data router.DataToSend, key *rsa.PublicKey) error {
+	dataJson, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("JSON Marshal error: %v\n", err)
+		return err
+	}
+
+	// Send the message to the TCP connection
+	encrypted, err := encryptWithPubKey([]byte(dataJson), key)
+	if err != nil {
+		log.Printf("Encryption error: %v\n", err)
+		return err
+	}
+
+	base64Data := base64.StdEncoding.EncodeToString(*encrypted)
+
+	_, err = c.Write([]byte(base64Data))
+	if err != nil {
+		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+		return errors.New("write error")
+	}
+	return nil
 }
 
 func decryptWithPrivateKey(data []byte, pkey *rsa.PrivateKey) (*[]byte, error) {
