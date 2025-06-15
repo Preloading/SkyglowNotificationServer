@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	TCPPort          int      `mapstructure:"TCP_PORT"`
+	ServerAddress    string   `mapstructure:"SERVER_ADDRESS"`
 	WhitelistedUUIDs []string `mapstructure:"WHITELISTED_UUIDS"`
 	BlacklistUUIDs   []string `mapstructure:"BLACKLISTED_UUIDS"`
 	WhitelistOn      bool     `mapstructure:"WHITELIST_ON"`

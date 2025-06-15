@@ -1,16 +1,26 @@
 package router
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
 
+	configPkg "github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
 )
 
 type DataToSend struct {
-	DeviceUUID string `json:"device_uuid,omitempty"`
-	Message    string `json:"message"`
-	Topic      string `json:"topic"`
-	MessageId  string `json:"message_id,omitempty"`
+	DeviceAddress string   `json:"device_uuid,omitempty"`
+	Message       string   `json:"message"`
+	Topic         string   `json:"topic"`
+	MessageId     string   `json:"message_id,omitempty"`
+	TotalHops     int      `json:"total_hops,omitempty"`
+	Hops          []string `json:"hops,omitempty"`
 }
 
 type DataUpdate struct {
@@ -18,10 +28,15 @@ type DataUpdate struct {
 	Disconnect bool
 }
 
-// This function routes notifications from the HTTP server to both the TCP server and the database.
+type ServerTXT struct {
+	TCPAddress  string
+	TCPPort     int
+	HTTPAddress string
+}
 
 var (
 	connections map[string]chan DataUpdate
+	config      configPkg.Config
 )
 
 func AddConnection(deviceUUID string, messageChan chan DataUpdate) {
@@ -59,8 +74,30 @@ func RemoveConnection(deviceUUID string) {
 
 }
 
-func SendMessageToRouter(msg DataToSend) {
-	if ch, ok := connections[msg.DeviceUUID]; ok {
+func SendMessageToRouter(msg DataToSend) error {
+	if msg.DeviceAddress == "" {
+		return errors.New("Device address is empty, cannot send message")
+	}
+
+	// Check if the address belongs to our server
+	msgParts := strings.Split(msg.DeviceAddress, "@")
+	if len(msgParts) != 2 {
+		return errors.New("invalid device address format, expected 'uuid@server'")
+	}
+
+	if msgParts[1] == config.ServerAddress {
+		// This is one of us, lets send it off to the local router
+		SendMessageToLocalRouter(msg)
+		return nil
+	} else {
+		// This message is to be sent to someone else's server, lets go find them
+		return nil // TODO
+	}
+}
+
+func SendMessageToLocalRouter(msg DataToSend) {
+	db.AddMessage(msg.MessageId, msg.Message, msg.DeviceAddress, msg.Topic)
+	if ch, ok := connections[msg.DeviceAddress]; ok {
 		select {
 		case ch <- DataUpdate{DataToSend: msg, Disconnect: false}:
 			// Message sent to connection
@@ -69,6 +106,77 @@ func SendMessageToRouter(msg DataToSend) {
 			fmt.Println("Channel is full or blocked, message not sent to connection")
 		}
 	}
+}
 
-	db.AddMessage(msg.MessageId, msg.Message, msg.DeviceUUID, msg.Topic)
+func RouteMessageToProperServer(msg DataToSend, server string, username string) (*http.Response, error) {
+	txts, err := net.LookupTXT(fmt.Sprintf("_sgn.%s", server))
+	if err != nil {
+		return nil, errors.New("failed to lookup txt record")
+	}
+	var serverData ServerTXT
+
+	found := false
+	for _, txt := range txts {
+		serverData, err = ParseServerTXT(txt)
+		if err == nil {
+			found = true
+			break
+		}
+	}
+	if found == false {
+		return nil, errors.New("Server could not be found.")
+	}
+
+	relayMsg := msg
+	relayMsg.TotalHops = relayMsg.TotalHops + 1
+	if relayMsg.TotalHops > 10 {
+		return nil, errors.New("Hop limit exceeded!")
+	}
+
+	relayMsg.Hops = append(relayMsg.Hops, config.ServerAddress)
+
+	relayMsgJson, err := json.Marshal(relayMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.Post(fmt.Sprintf("%s/relay_message", serverData.HTTPAddress), "application/json", bytes.NewBuffer(relayMsgJson))
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func ParseServerTXT(input string) (ServerTXT, error) {
+	var result ServerTXT
+
+	// Split the input by spaces to get key-value pairs
+	parts := strings.Fields(input)
+
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			return result, fmt.Errorf("invalid format in part: %s", part)
+		}
+
+		key := kv[0]
+		value := kv[1]
+
+		switch key {
+		case "tcp_addr":
+			// TODO: Validate that this is not localhost or reserved IPs
+			result.TCPAddress = value
+		case "tcp_port":
+			port, err := strconv.Atoi(value)
+			if err != nil {
+				return result, fmt.Errorf("invalid TCP port: %v", err)
+			}
+			result.TCPPort = port
+		case "http_addr":
+			// TODO: Validate this is starts with either https or http, and that it is not localhost or reserved IPs
+			result.HTTPAddress = value
+		}
+	}
+
+	return result, nil
 }
