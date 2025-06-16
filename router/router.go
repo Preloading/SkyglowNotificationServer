@@ -141,7 +141,7 @@ func RouteMessageToProperServer(msg DataToSend, server string) (*http.Response, 
 		return nil, err
 	}
 
-	resp, err := http.Post(fmt.Sprintf("%s/relay_message", serverData.HTTPAddress), "application/json", bytes.NewBuffer(relayMsgJson))
+	resp, err := http.Post(fmt.Sprintf("%s/send", serverData.HTTPAddress), "application/json", bytes.NewBuffer(relayMsgJson))
 	if err != nil {
 		return nil, err
 	}
