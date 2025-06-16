@@ -15,7 +15,11 @@ func NotificationSend(c *fiber.Ctx) error {
 	}
 	data.MessageId = uuid.New().String()
 
-	router.SendMessageToLocalRouter(data)
+	err := router.SendMessageToRouter(data)
+
+	if err != nil {
+		return c.SendString(err.Error())
+	}
 
 	return c.JSON(fiber.Map{
 		"status": "Message sent",

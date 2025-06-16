@@ -15,7 +15,7 @@ import (
 )
 
 type DataToSend struct {
-	DeviceAddress string   `json:"device_uuid,omitempty"`
+	DeviceAddress string   `json:"device_address,omitempty"`
 	Message       string   `json:"message"`
 	Topic         string   `json:"topic"`
 	MessageId     string   `json:"message_id,omitempty"`
@@ -36,7 +36,7 @@ type ServerTXT struct {
 
 var (
 	connections map[string]chan DataUpdate
-	config      configPkg.Config
+	Config      configPkg.Config
 )
 
 func AddConnection(deviceUUID string, messageChan chan DataUpdate) {
@@ -76,7 +76,7 @@ func RemoveConnection(deviceUUID string) {
 
 func SendMessageToRouter(msg DataToSend) error {
 	if msg.DeviceAddress == "" {
-		return errors.New("Device address is empty, cannot send message")
+		return errors.New("device address is empty, cannot send message")
 	}
 
 	// Check if the address belongs to our server
@@ -85,13 +85,14 @@ func SendMessageToRouter(msg DataToSend) error {
 		return errors.New("invalid device address format, expected 'uuid@server'")
 	}
 
-	if msgParts[1] == config.ServerAddress {
+	if msgParts[1] == Config.ServerAddress {
 		// This is one of us, lets send it off to the local router
 		SendMessageToLocalRouter(msg)
 		return nil
 	} else {
 		// This message is to be sent to someone else's server, lets go find them
-		return nil // TODO
+		_, err := RouteMessageToProperServer(msg, msgParts[1])
+		return err // TODO
 	}
 }
 
@@ -108,7 +109,7 @@ func SendMessageToLocalRouter(msg DataToSend) {
 	}
 }
 
-func RouteMessageToProperServer(msg DataToSend, server string, username string) (*http.Response, error) {
+func RouteMessageToProperServer(msg DataToSend, server string) (*http.Response, error) {
 	txts, err := net.LookupTXT(fmt.Sprintf("_sgn.%s", server))
 	if err != nil {
 		return nil, errors.New("failed to lookup txt record")
@@ -123,17 +124,17 @@ func RouteMessageToProperServer(msg DataToSend, server string, username string) 
 			break
 		}
 	}
-	if found == false {
-		return nil, errors.New("Server could not be found.")
+	if !found {
+		return nil, errors.New("server could not be found")
 	}
 
 	relayMsg := msg
 	relayMsg.TotalHops = relayMsg.TotalHops + 1
 	if relayMsg.TotalHops > 10 {
-		return nil, errors.New("Hop limit exceeded!")
+		return nil, errors.New("hop limit exceeded")
 	}
 
-	relayMsg.Hops = append(relayMsg.Hops, config.ServerAddress)
+	relayMsg.Hops = append(relayMsg.Hops, Config.ServerAddress)
 
 	relayMsgJson, err := json.Marshal(relayMsg)
 	if err != nil {
