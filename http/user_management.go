@@ -33,18 +33,6 @@ func CreateUser(c *fiber.Ctx) error {
 
 	db.CreateUser(req.UUID, *publicKey)
 
-	// Marshal the public key to PEM format with correct header
-	publicKeyBytes := x509.MarshalPKCS1PublicKey(publicKey)
-	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyBytes,
-	})
-	// Marshal the private key to PEM format with correct header
-	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
-	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: privateKeyBytes,
-	})
 	// Marshal the server public key
 	serverPublicKeyBytes := x509.MarshalPKCS1PublicKey(privateKey.Public().(*rsa.PublicKey))
 	serverPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
@@ -53,10 +41,8 @@ func CreateUser(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{
-		"status":             "success",
-		"uuid":               req.UUID,
-		"client_public_key":  string(publicKeyPEM),
-		"client_private_key": string(privateKeyPEM),
-		"server_public_key":  string(serverPublicKeyPEM),
+		"status":            "success",
+		"address":           req.UUID,
+		"server_public_key": string(serverPublicKeyPEM),
 	})
 }

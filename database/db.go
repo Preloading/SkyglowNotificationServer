@@ -25,6 +25,16 @@ type UnacknowledgedMessages struct {
 	CreatedAt  time.Time `gorm:"autoCreateTime"`
 }
 
+type NotificationTokens struct {
+	gorm.Model
+	Token            string `gorm:"primaryKey"`
+	DeviceUUID       string
+	NotificationType int       // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
+	AppBundleId      string    // example: com.atebits.tweetie2
+	IssuedAt         time.Time `gorm:"autoCreateTime"`
+	IsValid          bool      // Unsure if this should be kept
+}
+
 type Devices struct {
 	gorm.Model
 	UUID      string `gorm:"primaryKey"`
