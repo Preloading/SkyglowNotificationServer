@@ -24,7 +24,6 @@ type DeviceRegisterResponce struct {
 }
 
 func CreateUser(c *fiber.Ctx) error {
-	fmt.Println(string(c.Body()))
 	var req DeviceRegisterRequest
 
 	if err := json.Unmarshal(c.Body(), &req); err != nil {

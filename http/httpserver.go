@@ -17,8 +17,9 @@ var (
 	keys   config.CryptoKeys
 )
 
-func CreateHTTPServer(_keys configPkg.CryptoKeys) {
+func CreateHTTPServer(_keys configPkg.CryptoKeys, _config configPkg.Config) {
 	keys = _keys
+	Config = _config
 	app := fiber.New()
 	app.Use(logger.New())
 
