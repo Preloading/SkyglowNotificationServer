@@ -3,7 +3,6 @@ package http
 import (
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
 func NotificationSend(c *fiber.Ctx) error {
@@ -13,7 +12,6 @@ func NotificationSend(c *fiber.Ctx) error {
 			"error": "Invalid request",
 		})
 	}
-	data.MessageId = uuid.New().String()
 
 	err := router.SendMessageToRouter(data)
 

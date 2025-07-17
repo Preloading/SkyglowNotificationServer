@@ -1,16 +1,28 @@
 package http
 
 import (
+	"github.com/Preloading/SkyglowNotificationServer/config"
+	configPkg "github.com/Preloading/SkyglowNotificationServer/config"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
-func CreateHTTPServer() {
+type StatusOnly struct {
+	Status string `json:"status"`
+}
+
+var (
+	Config configPkg.Config
+	keys   config.CryptoKeys
+)
+
+func CreateHTTPServer(_keys configPkg.CryptoKeys) {
+	keys = _keys
 	app := fiber.New()
+	app.Use(logger.New())
 
 	app.Post("/send", NotificationSend)
-
-	app.Post("/request_keys", CreateUser)
 
 	// Websocket route
 	app.Use("/ws", func(c *fiber.Ctx) error {
@@ -24,6 +36,9 @@ func CreateHTTPServer() {
 	})
 
 	app.Get("/ws", websocket.New(BaseWebsocket))
+
+	// Device specific
+	app.Post("/snd/register_device", CreateUser)
 
 	app.Listen(":7878")
 }

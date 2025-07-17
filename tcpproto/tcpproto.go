@@ -68,10 +68,8 @@ func handleConnection(c net.Conn) {
 			continue
 		}
 
-		decryptedBytes := *decrypted
-		command := decryptedBytes[0]
-
-		switch 
+		// decryptedBytes := *decrypted
+		// command := decryptedBytes[0]
 
 		decryptedStr := string(*decrypted)
 		fmt.Println("Decrypted data:", decryptedStr)

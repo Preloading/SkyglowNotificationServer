@@ -7,7 +7,6 @@ import (
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
 func BaseWebsocket(c *websocket.Conn) {
@@ -27,7 +26,6 @@ func BaseWebsocket(c *websocket.Conn) {
 			log.Println("unmarshal:", err)
 			break
 		}
-		data.MessageId = uuid.New().String()
 
 		router.SendMessageToLocalRouter(data)
 

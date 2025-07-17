@@ -12,15 +12,22 @@ import (
 
 	configPkg "github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
+	"github.com/google/uuid"
 )
 
 type DataToSend struct {
-	DeviceAddress string   `json:"device_address,omitempty"`
-	Message       string   `json:"message"`
-	Topic         string   `json:"topic"`
-	MessageId     string   `json:"message_id,omitempty"`
-	TotalHops     int      `json:"total_hops,omitempty"`
-	Hops          []string `json:"hops,omitempty"`
+	DeviceAddress string `json:"device_address,omitempty"`
+	Message       string `json:"message"`
+	Topic         string `json:"topic"`
+	AlertAction   string `json:"alert_action,omitempty"` // Default to Open
+	AlertSound    string `json:"alert_sound,omitempty"`  // Default to UILocalNotificationDefaultSoundName
+	UserInfo      *any   `json:"user_info,omitempty"`    // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+
+	// Data for the server
+
+	MessageId string   `json:"message_id,omitempty"` // Don't let other users set this!
+	TotalHops int      `json:"total_hops,omitempty"`
+	Hops      []string `json:"hops,omitempty"`
 }
 
 type DataUpdate struct {
@@ -97,6 +104,13 @@ func SendMessageToRouter(msg DataToSend) error {
 }
 
 func SendMessageToLocalRouter(msg DataToSend) {
+	msg.MessageId = uuid.New().String()
+
+	// maybe sanitize this a bit better
+	if msg.AlertSound == "" {
+		msg.AlertSound = "UILocalNotificationDefaultSoundName" // I checked, and it does UILocalNotificationDefaultSoundName is set to UILocalNotificationDefaultSoundName
+	}
+
 	db.AddMessage(msg.MessageId, msg.Message, msg.DeviceAddress, msg.Topic)
 	if ch, ok := connections[msg.DeviceAddress]; ok {
 		select {
