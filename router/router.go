@@ -16,18 +16,18 @@ import (
 )
 
 type DataToSend struct {
-	DeviceAddress string `json:"device_address,omitempty"`
-	Message       string `json:"message"`
-	Topic         string `json:"topic"`
-	AlertAction   string `json:"alert_action,omitempty"` // Default to Open
-	AlertSound    string `json:"alert_sound,omitempty"`  // Default to UILocalNotificationDefaultSoundName
-	UserInfo      *any   `json:"user_info,omitempty"`    // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+	DeviceAddress string `json:"device_address,omitempty" plist:"-"`
+	AlertBody     string `json:"message" plist:"message"`
+	Topic         string `json:"topic" plist:"topic"`
+	AlertAction   string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
+	AlertSound    string `json:"alert_sound,omitempty" plist:"alert_sound"`   // Default to UILocalNotificationDefaultSoundName
+	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
 
 	// Data for the server
 
-	MessageId string   `json:"message_id,omitempty"` // Don't let other users set this!
-	TotalHops int      `json:"total_hops,omitempty"`
-	Hops      []string `json:"hops,omitempty"`
+	MessageId string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
+	TotalHops int      `json:"total_hops,omitempty" plist:"-"`
+	Hops      []string `json:"hops,omitempty" plist:"-"`
 }
 
 type DataUpdate struct {
@@ -111,7 +111,7 @@ func SendMessageToLocalRouter(msg DataToSend) {
 		msg.AlertSound = "UILocalNotificationDefaultSoundName" // I checked, and it does UILocalNotificationDefaultSoundName is set to UILocalNotificationDefaultSoundName
 	}
 
-	db.AddMessage(msg.MessageId, msg.Message, msg.DeviceAddress, msg.Topic)
+	db.AddMessage(msg.MessageId, msg.AlertBody, msg.DeviceAddress, msg.Topic)
 	if ch, ok := connections[msg.DeviceAddress]; ok {
 		select {
 		case ch <- DataUpdate{DataToSend: msg, Disconnect: false}:

@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -33,6 +32,11 @@ type Message struct {
 type LoginChallenge struct {
 	Message
 	Challenge []byte `plist:"challenge"`
+}
+
+type Notification struct {
+	Message
+	router.DataToSend
 }
 
 func CreateTCPServer(port uint16, _keys config.CryptoKeys, _config config.Config) {
@@ -125,6 +129,7 @@ func handleConnection(c net.Conn) {
 		//////////////////////////////////////
 
 		if typeVal, ok := message["$type"].(uint64); ok {
+			fmt.Println(typeVal)
 			if !isAuthenticated {
 				switch typeVal {
 				case 0: // Login Request
@@ -176,6 +181,25 @@ func handleConnection(c net.Conn) {
 						// login sucessful
 
 						isAuthenticated = true
+						router.AddConnection(userAddress, channel)
+						defer router.RemoveConnection(userAddress)
+						go func() {
+							for msg := range channel {
+								if msg.Disconnect {
+									log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
+									return
+								}
+								log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
+								if err := sendNotificationToClient(c, msg.DataToSend); err != nil {
+									if err.Error() == "write error" {
+										log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
+										return
+									}
+									log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
+									return
+								}
+							}
+						}()
 						if err := sendMessageToClient(c, nil, 3); err != nil {
 							return
 						}
@@ -183,6 +207,38 @@ func handleConnection(c net.Conn) {
 						return
 					}
 
+				default:
+					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					return
+				}
+			} else {
+				// Authenticated requests
+				switch typeVal {
+				case 2: // Poll Unacked Notifications
+					unackedNotifications := db.GetUnacknowledgedMessages(userAddress)
+					if len(unackedNotifications) == 0 {
+						continue
+					}
+					for _, unackedNotification := range unackedNotifications {
+						log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
+						sendNotificationToClient(c, router.DataToSend{ // TODO: make this better
+							AlertBody: unackedNotification.Message,
+							Topic:     unackedNotification.Topic,
+							MessageId: unackedNotification.MessageId,
+						})
+					}
+
+				case 3: // Ack Notification
+					// get the notification id
+					if message["notification"] == nil || message["notification"] == "" {
+						return
+					}
+					notificationId, ok := message["notification"].(string)
+					if !ok {
+						return
+					}
+
+					db.AckMessage(notificationId, userAddress)
 				default:
 					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
 					return
@@ -231,29 +287,6 @@ func handleConnection(c net.Conn) {
 		// 		rsaClientPublicKey = pubKey
 
 		// 		// Make a channel to receive messages
-		// 		router.AddConnection(connectionUUID, channel)
-		// 		defer router.RemoveConnection(connectionUUID)
-		// 		go func() {
-		// 			for {
-		// 				select {
-		// 				case msg := <-channel:
-		// 					// Check if the channel is closed
-		// 					if msg.Disconnect {
-		// 						log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
-		// 						return
-		// 					}
-		// 					log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
-		// 					if err := sendNotificationToClient(c, msg.DataToSend, rsaClientPublicKey); err != nil {
-		// 						if err.Error() == "write error" {
-		// 							log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
-		// 							return
-		// 						}
-		// 						log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
-		// 						return
-		// 					}
-		// 				}
-		// 			}
-		// 		}()
 
 		// 	}
 		// 	if connectionUUID != decryptedStr {
@@ -280,6 +313,7 @@ func handleConnection(c net.Conn) {
 	}
 }
 
+// WARNING: The message type is uhhh fucky.
 func sendMessageToClient(c net.Conn, dataToSend interface{}, messageType int) error {
 	var plistEncoded []byte
 	var err error
@@ -332,45 +366,33 @@ func sendMessageToClient(c net.Conn, dataToSend interface{}, messageType int) er
 	return nil
 }
 
-func sendNotificationToClient(c net.Conn, data router.DataToSend, key *rsa.PublicKey) error {
-	dataJson, err := json.Marshal(data)
-	if err != nil {
-		log.Printf("JSON Marshal error: %v\n", err)
-		return err
+func sendNotificationToClient(c net.Conn, data router.DataToSend) error {
+	dataToSend := Notification{
+		Message:    Message{Type: 2},
+		DataToSend: data,
 	}
 
-	// Send the message to the TCP connection
-	encrypted, err := encryptWithPubKey([]byte(dataJson), key)
-	if err != nil {
-		log.Printf("Encryption error: %v\n", err)
+	if err := sendMessageToClient(c, dataToSend, 2); err != nil {
 		return err
-	}
-
-	base64Data := base64.StdEncoding.EncodeToString(*encrypted)
-
-	_, err = c.Write([]byte(base64Data))
-	if err != nil {
-		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
-		return errors.New("write error")
 	}
 	return nil
 }
 
-func decryptWithPrivateKey(data []byte, pkey *rsa.PrivateKey) (*[]byte, error) {
-	// Decrypt the data using PKCS1 OAEP
-	decrypted, err := rsa.DecryptOAEP(
-		sha1.New(),
-		rand.Reader,
-		pkey,
-		data,
-		nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("decryption error: %w", err)
-	}
+// func decryptWithPrivateKey(data []byte, pkey *rsa.PrivateKey) (*[]byte, error) {
+// 	// Decrypt the data using PKCS1 OAEP
+// 	decrypted, err := rsa.DecryptOAEP(
+// 		sha1.New(),
+// 		rand.Reader,
+// 		pkey,
+// 		data,
+// 		nil,
+// 	)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("decryption error: %w", err)
+// 	}
 
-	return &decrypted, nil
-}
+// 	return &decrypted, nil
+// }
 
 func encryptWithPubKey(data []byte, key *rsa.PublicKey) (*[]byte, error) {
 	// Decrypt the data using PKCS1 OAEP

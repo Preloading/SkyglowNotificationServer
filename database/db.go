@@ -103,8 +103,8 @@ func GetUser(device_address string) (*rsa.PublicKey, error) {
 	return pubKey, nil
 }
 
-func GetUnacknowledgedMessages(device_uuid string) []UnacknowledgedMessages {
+func GetUnacknowledgedMessages(device_address string) []UnacknowledgedMessages {
 	var messages []UnacknowledgedMessages
-	db.Find(&messages, "device_address = ?", device_uuid)
+	db.Find(&messages, "device_address = ?", device_address)
 	return messages
 }
