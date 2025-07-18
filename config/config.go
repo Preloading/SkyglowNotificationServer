@@ -4,8 +4,7 @@ package config
 
 import (
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
+	"crypto/tls"
 	"fmt"
 	"os"
 
@@ -22,8 +21,10 @@ type Config struct {
 }
 
 type CryptoKeys struct {
-	ServerPrivateKey *rsa.PrivateKey
-	ServerPublicKey  *rsa.PublicKey
+	ServerPrivateKey      *rsa.PrivateKey // depericated
+	ServerPublicKey       *rsa.PublicKey  // depericated
+	ServerPublicKeyString *string
+	ServerTLSCert         *tls.Certificate
 }
 
 // LoadConfig reads configuration from config.yaml file
@@ -45,42 +46,22 @@ func LoadConfig() (config Config, err error) {
 	return config, nil
 }
 
-func LoadCryptoKeys() (keys CryptoKeys, err error) {
-	// Load server public key
+func LoadCryptoKeys() (keys *CryptoKeys, err error) {
+	cert, err := tls.LoadX509KeyPair("keys/server_public_key.pem", "keys/server_private_key.pem")
+	if err != nil {
+		return nil, err
+	}
+
 	serverPubKeyBytes, err := os.ReadFile("keys/server_public_key.pem")
 	if err != nil {
 		return keys, fmt.Errorf("error reading server public key: %w", err)
 	}
-	serverPubKeyBlock, _ := pem.Decode(serverPubKeyBytes)
-	if serverPubKeyBlock == nil {
-		return keys, fmt.Errorf("failed to decode server public key PEM")
-	}
-	genericPubKey, err := x509.ParsePKIXPublicKey(serverPubKeyBlock.Bytes)
-	if err != nil {
-		return keys, fmt.Errorf("error parsing server public key: %w", err)
-	}
-	serverPubKey, ok := genericPubKey.(*rsa.PublicKey)
-	if !ok {
-		return keys, fmt.Errorf("server public key is not an RSA key")
-	}
-	keys.ServerPublicKey = serverPubKey
+	serverPubKeyString := string(serverPubKeyBytes)
 
-	// Load server private key
-	serverPrivKeyBytes, err := os.ReadFile("keys/server_private_key.pem")
-	if err != nil {
-		return keys, fmt.Errorf("error reading server private key: %w", err)
-	}
-	serverPrivKeyBlock, _ := pem.Decode(serverPrivKeyBytes)
-	if serverPrivKeyBlock == nil {
-		return keys, fmt.Errorf("failed to decode server private key PEM")
-	}
-	serverPrivKey, err := x509.ParsePKCS1PrivateKey(serverPrivKeyBlock.Bytes)
-	if err != nil {
-		return keys, fmt.Errorf("error parsing server private key: %w", err)
-	}
-	keys.ServerPrivateKey = serverPrivKey
-
-	return keys, nil
+	return &CryptoKeys{
+		ServerTLSCert:         &cert,
+		ServerPublicKeyString: &serverPubKeyString,
+	}, nil
 }
 
 func IsWhitelisted(uuid string, _config Config) bool {

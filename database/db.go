@@ -81,9 +81,9 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 	return nil
 }
 
-func GetUser(uuid string) (*rsa.PublicKey, error) {
+func GetUser(device_address string) (*rsa.PublicKey, error) {
 	var device Devices
-	result := db.First(&device, "uuid = ?", uuid)
+	result := db.First(&device, "device_address = ?", device_address)
 	if result.Error != nil {
 		return nil, result.Error
 	}

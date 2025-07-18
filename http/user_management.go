@@ -54,16 +54,9 @@ func CreateUser(c *fiber.Ctx) error {
 
 	db.SaveNewUser(client_address, *clientPubKey)
 
-	// Marshal the server public key
-	serverPublicKeyBytes := x509.MarshalPKCS1PublicKey(keys.ServerPublicKey)
-	serverPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: serverPublicKeyBytes,
-	})
-
 	return c.JSON(DeviceRegisterResponce{
 		Status:        "sucess",
 		DeviceAddress: client_address,
-		ServerPubKey:  string(serverPublicKeyPEM),
+		ServerPubKey:  *keys.ServerPublicKeyString,
 	})
 }

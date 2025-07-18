@@ -27,8 +27,8 @@ func main() {
 	db.InitDB("sqlite.db")
 	router.Config = config
 	fmt.Println("Starting TCP Server...")
-	go tcpproto.CreateTCPServer(uint16(config.TCPPort), keys, config)
+	go tcpproto.CreateTCPServer(uint16(config.TCPPort), *keys, config)
 	fmt.Println("Starting HTTP Server...")
-	go http.CreateHTTPServer(keys, config)
+	go http.CreateHTTPServer(*keys, config)
 	select {}
 }

@@ -4,18 +4,21 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"reflect"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
 	"github.com/Preloading/SkyglowNotificationServer/router"
+	"howett.net/plist"
 )
 
 var (
@@ -23,15 +26,34 @@ var (
 	configData config.Config
 )
 
+type Message struct {
+	Type int `plist:"$type"`
+}
+
+type LoginChallenge struct {
+	Message
+	Challenge []byte `plist:"challenge"`
+}
+
 func CreateTCPServer(port uint16, _keys config.CryptoKeys, _config config.Config) {
 	keys = _keys
 	configData = _config
 	PORTSTR := ":" + strconv.FormatUint(uint64(port), 10)
-	l, err := net.Listen("tcp4", PORTSTR)
+
+	// Create TLS configuration
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*_keys.ServerTLSCert},
+		MinVersion:   tls.VersionTLS10,
+	}
+
+	// Use TLS listener instead of raw TCP
+	l, err := tls.Listen("tcp", PORTSTR, tlsConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer l.Close()
+
+	log.Printf("TLS server listening on port %d", port)
 
 	for {
 		c, err := l.Accept()
@@ -46,119 +68,268 @@ func CreateTCPServer(port uint16, _keys config.CryptoKeys, _config config.Config
 func handleConnection(c net.Conn) {
 	log.Printf("Client Connected: %s\n", c.RemoteAddr().String())
 	defer c.Close()
-	connectionUUID := ""
+	// connectionUUID := ""
 	channel := make(chan router.DataUpdate)
-	var rsaClientPublicKey *rsa.PublicKey
+	// var rsaClientPublicKey *rsa.PublicKey
 	defer close(channel)
 
-	// Create a buffer for reading chunks
-	buffer := make([]byte, 1024)
+	// client info
+	userAddress := ""
+	var userPubKey *rsa.PublicKey
+
+	// auth
+	authTimestamp := ""
+	authenticationNonce := ""
+
+	isAuthenticated := false
+	messageLen := make([]byte, 4)
+
+	// send hello
+	if err := sendMessageToClient(c, nil, 0); err != nil {
+		return
+	}
 
 	for {
-		n, err := c.Read(buffer)
+		n, err := c.Read(messageLen)
 		if err != nil {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
 			return
 		}
+		if n != 4 {
+			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			return
+		}
+		messageSize := uint32(messageLen[0])<<24 | uint32(messageLen[1])<<16 | uint32(messageLen[2])<<8 | uint32(messageLen[3]) // hate. this was copilot, if there's a nicer way, PR.
+		fmt.Printf("Receiving a message with a length of %d\n", messageSize)
 
-		// Try to decrypt the raw data
-		decrypted, err := decryptWithPrivateKey(buffer[:n], keys.ServerPrivateKey)
+		// Read the data we care about
+		plistMessage := make([]byte, messageSize)
+		n, err = c.Read(plistMessage)
 		if err != nil {
-			log.Printf("Decryption error from %s: %v\n", c.RemoteAddr().String(), err)
-			continue
+			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			return
+		}
+		if n != int(messageSize) {
+			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			return
 		}
 
-		// decryptedBytes := *decrypted
-		// command := decryptedBytes[0]
+		message := make(map[string]interface{})
+		if _, err := plist.Unmarshal(plistMessage, message); err != nil {
+			log.Printf("Read error (plist decode) from %s: %v\n", c.RemoteAddr().String(), err)
+			return
+		}
 
-		decryptedStr := string(*decrypted)
-		fmt.Println("Decrypted data:", decryptedStr)
+		//////////////////////////////////////
+		//        Message Handling          //
+		//////////////////////////////////////
 
-		// Handling
-		if strings.HasPrefix(decryptedStr, "ACK:") {
-			// Handle ACK
-			if connectionUUID == "" {
-				fmt.Println("ACK received but no UUID set, ignoring...")
-				continue
-			}
+		if typeVal, ok := message["$type"].(uint64); ok {
+			if !isAuthenticated {
+				switch typeVal {
+				case 0: // Login Request
+					log.Printf("A client just asked to login! from %s\n", c.RemoteAddr().String())
+					fmt.Printf("Login request from address: %v, version: %v\n", message["address"], message["version"])
 
-			db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"), connectionUUID)
-
-			fmt.Println("Received ACK:", decryptedStr)
-		} else {
-			// Is a UUID
-			// I could check if it's correct but that lame
-			if connectionUUID == "" {
-				connectionUUID = decryptedStr
-				if configData.WhitelistOn {
-					if !config.IsWhitelisted(connectionUUID, configData) {
+					// verify they actually sent what we need
+					if message["address"] == nil || message["address"] == "" {
 						return
 					}
-				} else {
-					if config.IsBlacklisted(connectionUUID, configData) {
+					userAddress, ok = message["address"].(string)
+					if !ok {
 						return
 					}
-				}
-				fmt.Println("Connection UUID set:", connectionUUID)
-				pubKey, err := db.GetUser(connectionUUID)
-				if err != nil {
-					log.Printf("Error getting public key for UUID %s: %v\n", connectionUUID, err)
-					return
-				}
-				if pubKey == nil {
-					log.Printf("No public key found for UUID %s\n", connectionUUID)
-					return
-				}
-				rsaClientPublicKey = pubKey
+					// load client data
+					userPubKey, err = db.GetUser(userAddress)
+					if err != nil {
+						return
+					}
 
-				// Make a channel to receive messages
-				router.AddConnection(connectionUUID, channel)
-				defer router.RemoveConnection(connectionUUID)
-				go func() {
-					for {
-						select {
-						case msg := <-channel:
-							// Check if the channel is closed
-							if msg.Disconnect {
-								log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
-								return
-							}
-							log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
-							if err := sendNotificationToClient(c, msg.DataToSend, rsaClientPublicKey); err != nil {
-								if err.Error() == "write error" {
-									log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
-									return
-								}
-								log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
-								return
-							}
+					// create challenge
+					authTimestamp = fmt.Sprint(time.Now().UTC().Unix())
+					authenticationNonceBytes := make([]byte, 32)
+					_, err := rand.Read(authenticationNonceBytes)
+					if err != nil {
+						panic(fmt.Errorf("could not generate nonce")) // worthy of a panic
+					}
+					authenticationNonce = base64.StdEncoding.EncodeToString(authenticationNonceBytes)
+
+					// create challenge plaintext
+					challengeDecrypted := fmt.Sprintf("%s,%s,%s", userAddress, authenticationNonce, authTimestamp)
+					challengeEncrypted, err := encryptWithPubKey([]byte(challengeDecrypted), userPubKey)
+					if err != nil {
+						return
+					}
+					if err := sendMessageToClient(c, LoginChallenge{
+						Message:   Message{Type: 1},
+						Challenge: *challengeEncrypted,
+					}, 1); err != nil {
+						return
+					}
+
+				case 1: // Challenge Response
+					if authenticationNonce == "" {
+						return // they did the responce before the request, very fishy.
+					}
+
+					if authenticationNonce == message["nonce"] && authTimestamp == message["timestamp"] {
+						// login sucessful
+
+						isAuthenticated = true
+						if err := sendMessageToClient(c, nil, 3); err != nil {
+							return
 						}
+					} else {
+						return
 					}
-				}()
 
+				default:
+					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					return
+				}
 			}
-			if connectionUUID != decryptedStr {
-				fmt.Println("UUID mismatch, disconnecting...")
-				return
-			}
-
-			// Send messages that haven't been ACKed
-			messages := db.GetUnacknowledgedMessages(connectionUUID)
-			if len(messages) == 0 {
-				continue
-			}
-			for _, message := range messages {
-				log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
-
-				sendNotificationToClient(c, router.DataToSend{
-					Message: message.Message,
-					Topic:   message.Topic,
-				}, rsaClientPublicKey)
-			}
-
+		} else {
+			log.Printf("Invalid message format from %s: $type is not uint64\n", c.RemoteAddr().String())
+			return
 		}
+
+		// // Handling
+		// if strings.HasPrefix(decryptedStr, "ACK:") {
+		// 	// Handle ACK
+		// 	if connectionUUID == "" {
+		// 		fmt.Println("ACK received but no UUID set, ignoring...")
+		// 		continue
+		// 	}
+
+		// 	db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"), connectionUUID)
+
+		// 	fmt.Println("Received ACK:", decryptedStr)
+		// } else {
+		// 	// Is a UUID
+		// 	// I could check if it's correct but that lame
+		// 	if connectionUUID == "" {
+		// 		connectionUUID = decryptedStr
+		// 		if configData.WhitelistOn {
+		// 			if !config.IsWhitelisted(connectionUUID, configData) {
+		// 				return
+		// 			}
+		// 		} else {
+		// 			if config.IsBlacklisted(connectionUUID, configData) {
+		// 				return
+		// 			}
+		// 		}
+		// 		fmt.Println("Connection UUID set:", connectionUUID)
+		// 		pubKey, err := db.GetUser(connectionUUID)
+		// 		if err != nil {
+		// 			log.Printf("Error getting public key for UUID %s: %v\n", connectionUUID, err)
+		// 			return
+		// 		}
+		// 		if pubKey == nil {
+		// 			log.Printf("No public key found for UUID %s\n", connectionUUID)
+		// 			return
+		// 		}
+		// 		rsaClientPublicKey = pubKey
+
+		// 		// Make a channel to receive messages
+		// 		router.AddConnection(connectionUUID, channel)
+		// 		defer router.RemoveConnection(connectionUUID)
+		// 		go func() {
+		// 			for {
+		// 				select {
+		// 				case msg := <-channel:
+		// 					// Check if the channel is closed
+		// 					if msg.Disconnect {
+		// 						log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
+		// 						return
+		// 					}
+		// 					log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
+		// 					if err := sendNotificationToClient(c, msg.DataToSend, rsaClientPublicKey); err != nil {
+		// 						if err.Error() == "write error" {
+		// 							log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
+		// 							return
+		// 						}
+		// 						log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
+		// 						return
+		// 					}
+		// 				}
+		// 			}
+		// 		}()
+
+		// 	}
+		// 	if connectionUUID != decryptedStr {
+		// 		fmt.Println("UUID mismatch, disconnecting...")
+		// 		return
+		// 	}
+
+		// 	// Send messages that haven't been ACKed
+		// 	messages := db.GetUnacknowledgedMessages(connectionUUID)
+		// 	if len(messages) == 0 {
+		// 		continue
+		// 	}
+		// 	for _, message := range messages {
+		// 		log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
+
+		// 		sendNotificationToClient(c, router.DataToSend{
+		// 			Message: message.Message,
+		// 			Topic:   message.Topic,
+		// 		}, rsaClientPublicKey)
+		// 	}
+
+		// }
 
 	}
+}
+
+func sendMessageToClient(c net.Conn, dataToSend interface{}, messageType int) error {
+	var plistEncoded []byte
+	var err error
+
+	if dataToSend == nil {
+		// Just create a basic message with the specified type
+		data := Message{
+			Type: messageType,
+		}
+		plistEncoded, err = plist.Marshal(data, plist.BinaryFormat)
+	} else {
+		// fine
+		val := reflect.ValueOf(dataToSend)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		if val.Kind() == reflect.Struct {
+			if typeField := val.FieldByName("Type"); typeField.IsValid() && typeField.CanSet() {
+				typeField.SetInt(int64(messageType))
+			}
+		}
+
+		plistEncoded, err = plist.Marshal(dataToSend, plist.BinaryFormat)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// length stuff
+	messageLen := make([]byte, 4)
+	length := len(plistEncoded)
+	messageLen[0] = byte(length >> 24)
+	messageLen[1] = byte(length >> 16)
+	messageLen[2] = byte(length >> 8)
+	messageLen[3] = byte(length)
+
+	_, err = c.Write(messageLen)
+	if err != nil {
+		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+		return errors.New("write error in len")
+	}
+
+	_, err = c.Write(plistEncoded)
+	if err != nil {
+		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
+		return errors.New("write error in data")
+	}
+	return nil
 }
 
 func sendNotificationToClient(c net.Conn, data router.DataToSend, key *rsa.PublicKey) error {
