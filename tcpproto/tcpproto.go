@@ -47,7 +47,7 @@ func CreateTCPServer(port uint16, _keys config.CryptoKeys, _config config.Config
 	// Create TLS configuration
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*_keys.ServerTLSCert},
-		MinVersion:   tls.VersionTLS10,
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	// Use TLS listener instead of raw TCP
@@ -239,6 +239,10 @@ func handleConnection(c net.Conn) {
 					}
 
 					db.AckMessage(notificationId, userAddress)
+				case 4: // disconnect
+					return
+				case 5: // Recieve token
+
 				default:
 					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
 					return
@@ -313,7 +317,6 @@ func handleConnection(c net.Conn) {
 	}
 }
 
-// WARNING: The message type is uhhh fucky.
 func sendMessageToClient(c net.Conn, dataToSend interface{}, messageType int) error {
 	var plistEncoded []byte
 	var err error

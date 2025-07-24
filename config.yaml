@@ -6,15 +6,7 @@ TCP_PORT: 7373
 # looks like this:
 # TXT _sgn.example.com="tcp_addr=tcp.sgn.example.com tcp_port=7373 http_addr=https://sgn.example.com"
 # the example.com part of _sgn.example.com must be the server address
-SERVER_ADDRESS: preloading.dev
-
-WHITELISTED_UUIDS:
-  - DF45F982-A5E8-4DE6-88E8-ED1B4412F05F
-  - E416B0F9-70B7-4419-884C-CEF17630D77F
-
-WHITELIST_ON: true
-
-BLACKLISTED_UUIDS:
-  - 4D2A1E5F-3C7B-4A8F-9E6C-0D3B2F1A5C7E
+# Due to technical limitations (Reusing APNS's registation), this is limited to 16 charectors.
+SERVER_ADDRESS: t.preloading.dev
 
 DB_DSN: sqlite:///./sqlite.db

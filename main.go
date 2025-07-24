@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
@@ -22,6 +23,9 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("Loaded config successfully")
+	if len(config.ServerAddress) > 16 {
+		panic(errors.New("server address is greater than 16 in length! Please change to be 16 or under charactors"))
+	}
 
 	// Initialize the database connection
 	db.InitDB("sqlite.db")
