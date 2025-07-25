@@ -35,10 +35,17 @@ type NotificationToken struct {
 	IsValid          bool      // Unsure if this should be kept
 }
 
-type Devices struct {
+type DevicesDB struct {
 	gorm.Model
 	DeviceAddress string `gorm:"primaryKey"`
 	PublicKey     string
+	Language      string
+}
+
+type Device struct {
+	DeviceAddress string `gorm:"primaryKey"`
+	PublicKey     *rsa.PublicKey
+	Language      string
 }
 
 func InitDB(dsn string) {
@@ -52,7 +59,7 @@ func InitDB(dsn string) {
 
 	db.AutoMigrate(&NotificationToken{})
 	db.AutoMigrate(&UnacknowledgedMessages{})
-	db.AutoMigrate(&Devices{})
+	db.AutoMigrate(&DevicesDB{})
 }
 
 func AckMessage(message_id string, device_uuid string) {
@@ -75,10 +82,24 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 		return err
 	}
 
-	db.Create(&Devices{
+	db.Create(&DevicesDB{
 		DeviceAddress: device_address,
 		PublicKey:     string(encodedPubKey),
 	})
+	return nil
+}
+
+func UpdateLanguage(device_address string, language string) error {
+	var device DevicesDB
+	result := db.First(&device, "device_address = ?", device_address)
+	if result.Error != nil {
+		return result.Error
+	}
+	device.Language = language
+	result = db.Save(device)
+	if result.Error != nil {
+		return result.Error
+	}
 	return nil
 }
 
@@ -93,8 +114,8 @@ func SaveNewToken(device_address string, routingToken []byte, bundleId string, n
 	return nil
 }
 
-func GetUser(device_address string) (*rsa.PublicKey, error) {
-	var device Devices
+func GetUser(device_address string) (*Device, error) {
+	var device DevicesDB
 	result := db.First(&device, "device_address = ?", device_address)
 	if result.Error != nil {
 		return nil, result.Error
@@ -112,7 +133,11 @@ func GetUser(device_address string) (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("key is not an RSA public key")
 	}
 
-	return pubKey, nil
+	return &Device{
+		DeviceAddress: device.DeviceAddress,
+		PublicKey:     pubKey,
+		Language:      device.Language,
+	}, nil
 }
 
 func GetToken(routing_token []byte) (*NotificationToken, error) {

@@ -84,8 +84,8 @@ func handleConnection(c net.Conn) {
 
 	// client info
 	userAddress := ""
-	var userPubKey *rsa.PublicKey
-
+	device := &db.Device{}
+	userLang := ""
 	// auth
 	authTimestamp := ""
 	authenticationNonce := ""
@@ -141,15 +141,12 @@ func handleConnection(c net.Conn) {
 					fmt.Printf("Login request from address: %v, version: %v\n", message["address"], message["version"])
 
 					// verify they actually sent what we need
-					if message["address"] == nil || message["address"] == "" {
-						return
-					}
 					userAddress, ok = message["address"].(string)
 					if !ok {
 						return
 					}
 					// load client data
-					userPubKey, err = db.GetUser(userAddress)
+					device, err = db.GetUser(userAddress)
 					if err != nil {
 						return
 					}
@@ -165,10 +162,17 @@ func handleConnection(c net.Conn) {
 
 					// create challenge plaintext
 					challengeDecrypted := fmt.Sprintf("%s,%s,%s", userAddress, authenticationNonce, authTimestamp)
-					challengeEncrypted, err := encryptWithPubKey([]byte(challengeDecrypted), userPubKey)
+					challengeEncrypted, err := encryptWithPubKey([]byte(challengeDecrypted), device.PublicKey)
 					if err != nil {
 						return
 					}
+
+					// store the user's language for this session
+					userAddress, ok = message["lang"].(string)
+					if !ok {
+						return
+					}
+
 					if err := sendMessageToClient(c, LoginChallenge{
 						Message:   Message{Type: 1},
 						Challenge: *challengeEncrypted,
@@ -183,6 +187,11 @@ func handleConnection(c net.Conn) {
 
 					if authenticationNonce == message["nonce"] && authTimestamp == message["timestamp"] {
 						// login sucessful
+
+						// update lang settings
+						if device.Language != userLang {
+							db.UpdateLanguage(device.DeviceAddress, userLang)
+						}
 
 						isAuthenticated = true
 						router.AddConnection(userAddress, channel)
@@ -272,68 +281,6 @@ func handleConnection(c net.Conn) {
 			log.Printf("Invalid message format from %s: $type is not uint64\n", c.RemoteAddr().String())
 			return
 		}
-
-		// // Handling
-		// if strings.HasPrefix(decryptedStr, "ACK:") {
-		// 	// Handle ACK
-		// 	if connectionUUID == "" {
-		// 		fmt.Println("ACK received but no UUID set, ignoring...")
-		// 		continue
-		// 	}
-
-		// 	db.AckMessage(strings.TrimPrefix(decryptedStr, "ACK:"), connectionUUID)
-
-		// 	fmt.Println("Received ACK:", decryptedStr)
-		// } else {
-		// 	// Is a UUID
-		// 	// I could check if it's correct but that lame
-		// 	if connectionUUID == "" {
-		// 		connectionUUID = decryptedStr
-		// 		if configData.WhitelistOn {
-		// 			if !config.IsWhitelisted(connectionUUID, configData) {
-		// 				return
-		// 			}
-		// 		} else {
-		// 			if config.IsBlacklisted(connectionUUID, configData) {
-		// 				return
-		// 			}
-		// 		}
-		// 		fmt.Println("Connection UUID set:", connectionUUID)
-		// 		pubKey, err := db.GetUser(connectionUUID)
-		// 		if err != nil {
-		// 			log.Printf("Error getting public key for UUID %s: %v\n", connectionUUID, err)
-		// 			return
-		// 		}
-		// 		if pubKey == nil {
-		// 			log.Printf("No public key found for UUID %s\n", connectionUUID)
-		// 			return
-		// 		}
-		// 		rsaClientPublicKey = pubKey
-
-		// 		// Make a channel to receive messages
-
-		// 	}
-		// 	if connectionUUID != decryptedStr {
-		// 		fmt.Println("UUID mismatch, disconnecting...")
-		// 		return
-		// 	}
-
-		// 	// Send messages that haven't been ACKed
-		// 	messages := db.GetUnacknowledgedMessages(connectionUUID)
-		// 	if len(messages) == 0 {
-		// 		continue
-		// 	}
-		// 	for _, message := range messages {
-		// 		log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
-
-		// 		sendNotificationToClient(c, router.DataToSend{
-		// 			Message: message.Message,
-		// 			Topic:   message.Topic,
-		// 		}, rsaClientPublicKey)
-		// 	}
-
-		// }
-
 	}
 }
 
