@@ -34,6 +34,11 @@ type LoginChallenge struct {
 	Challenge []byte `plist:"challenge"`
 }
 
+type AckDeviceToken struct {
+	Message
+	RoutingToken []byte `plist:"routingToken"`
+}
+
 type Notification struct {
 	Message
 	router.DataToSend
@@ -104,7 +109,7 @@ func handleConnection(c net.Conn) {
 			return
 		}
 		messageSize := uint32(messageLen[0])<<24 | uint32(messageLen[1])<<16 | uint32(messageLen[2])<<8 | uint32(messageLen[3]) // hate. this was copilot, if there's a nicer way, PR.
-		fmt.Printf("Receiving a message with a length of %d\n", messageSize)
+		// fmt.Printf("Receiving a message with a length of %d\n", messageSize)
 
 		// Read the data we care about
 		plistMessage := make([]byte, messageSize)
@@ -129,7 +134,6 @@ func handleConnection(c net.Conn) {
 		//////////////////////////////////////
 
 		if typeVal, ok := message["$type"].(uint64); ok {
-			fmt.Println(typeVal)
 			if !isAuthenticated {
 				switch typeVal {
 				case 0: // Login Request
@@ -208,7 +212,7 @@ func handleConnection(c net.Conn) {
 					}
 
 				default:
-					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					log.Printf("An invalid unauthenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
 					return
 				}
 			} else {
@@ -242,9 +246,25 @@ func handleConnection(c net.Conn) {
 				case 4: // disconnect
 					return
 				case 5: // Recieve token
+					routingId, ok := message["deviceTokenChecksum"].([]byte)
+					if !ok {
+						return
+					}
+					bundleId, ok := message["appBundleId"].(string)
+					if !ok {
+						return
+					}
 
+					db.SaveNewToken(userAddress, routingId, bundleId, 0b111)
+					log.Printf("Saved a new token.")
+					if err := sendMessageToClient(c, AckDeviceToken{
+						Message:      Message{Type: 5},
+						RoutingToken: routingId,
+					}, 5); err != nil {
+						return
+					}
 				default:
-					log.Printf("An invalid message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					log.Printf("An invalid authenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
 					return
 				}
 			}

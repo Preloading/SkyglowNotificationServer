@@ -25,9 +25,9 @@ type UnacknowledgedMessages struct {
 	CreatedAt     time.Time `gorm:"autoCreateTime"`
 }
 
-type NotificationTokens struct {
+type NotificationToken struct {
 	gorm.Model
-	Token            string `gorm:"primaryKey"`
+	RoutingToken     []byte `gorm:"primaryKey"`
 	DeviceAddress    string
 	NotificationType int       // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
 	AppBundleId      string    // example: com.atebits.tweetie2
@@ -50,6 +50,7 @@ func InitDB(dsn string) {
 		panic(err)
 	}
 
+	db.AutoMigrate(&NotificationToken{})
 	db.AutoMigrate(&UnacknowledgedMessages{})
 	db.AutoMigrate(&Devices{})
 }
@@ -81,6 +82,17 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 	return nil
 }
 
+func SaveNewToken(device_address string, routingToken []byte, bundleId string, notificationType int) error {
+	db.Create(&NotificationToken{
+		DeviceAddress:    device_address,
+		AppBundleId:      bundleId,
+		RoutingToken:     routingToken,
+		NotificationType: notificationType,
+		IsValid:          true,
+	})
+	return nil
+}
+
 func GetUser(device_address string) (*rsa.PublicKey, error) {
 	var device Devices
 	result := db.First(&device, "device_address = ?", device_address)
@@ -101,6 +113,17 @@ func GetUser(device_address string) (*rsa.PublicKey, error) {
 	}
 
 	return pubKey, nil
+}
+
+func GetToken(routing_token []byte) (*NotificationToken, error) {
+	var notificationToken NotificationToken
+	result := db.First(&notificationToken, "routing_key = ?", routing_token)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	// Decode the public key
+	return &notificationToken, nil
 }
 
 func GetUnacknowledgedMessages(device_address string) []UnacknowledgedMessages {
