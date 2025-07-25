@@ -168,7 +168,7 @@ func handleConnection(c net.Conn) {
 					}
 
 					// store the user's language for this session
-					userAddress, ok = message["lang"].(string)
+					userLang, ok = message["lang"].(string)
 					if !ok {
 						return
 					}
