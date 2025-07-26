@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +17,10 @@ import (
 )
 
 type DataToSend struct {
-	DeviceAddress string `json:"device_address,omitempty" plist:"-"`
+	RoutingKeyStr string `json:"routing_key" plist:"-"`
+	RoutingKey    []byte `json:"-" plist:"routing_key"`
+	DeviceAddress string `json:"-" plist:"-"`
+	ServerAddress string `json:"server_address" plist:"-"`
 	AlertBody     string `json:"message" plist:"message"`
 	Topic         string `json:"topic" plist:"topic"`
 	AlertAction   string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
@@ -82,28 +86,22 @@ func RemoveConnection(deviceUUID string) {
 }
 
 func SendMessageToRouter(msg DataToSend) error {
-	if msg.DeviceAddress == "" {
-		return errors.New("device address is empty, cannot send message")
+	if msg.ServerAddress == "" {
+		return errors.New("server address is empty, cannot send message")
 	}
 
-	// Check if the address belongs to our server
-	msgParts := strings.Split(msg.DeviceAddress, "@")
-	if len(msgParts) != 2 {
-		return errors.New("invalid device address format, expected 'uuid@server'")
-	}
-
-	if msgParts[1] == Config.ServerAddress {
+	if msg.ServerAddress == Config.ServerAddress {
 		// This is one of us, lets send it off to the local router
-		SendMessageToLocalRouter(msg)
-		return nil
+		err := SendMessageToLocalRouter(msg)
+		return err
 	} else {
 		// This message is to be sent to someone else's server, lets go find them
-		_, err := RouteMessageToProperServer(msg, msgParts[1])
+		_, err := RouteMessageToProperServer(msg, msg.ServerAddress)
 		return err // TODO
 	}
 }
 
-func SendMessageToLocalRouter(msg DataToSend) {
+func SendMessageToLocalRouter(msg DataToSend) error {
 	msg.MessageId = uuid.New().String()
 
 	// maybe sanitize this a bit better
@@ -111,7 +109,24 @@ func SendMessageToLocalRouter(msg DataToSend) {
 		msg.AlertSound = "UILocalNotificationDefaultSoundName" // I checked, and it does UILocalNotificationDefaultSoundName is set to UILocalNotificationDefaultSoundName
 	}
 
-	db.AddMessage(msg.MessageId, msg.AlertBody, msg.DeviceAddress, msg.Topic)
+	// decode routing key hex
+	bs, err := hex.DecodeString(msg.RoutingKeyStr)
+	if err != nil {
+		return errors.New("routing key not in hex")
+	}
+
+	msg.RoutingKey = bs
+
+	// query device address
+	deviceInfo, err := db.GetToken(bs)
+	if err != nil {
+		return errors.New("routing key invalid")
+	}
+
+	msg.Topic = deviceInfo.AppBundleId
+	msg.DeviceAddress = deviceInfo.DeviceAddress
+
+	db.AddMessage(msg.MessageId, msg.AlertBody, msg.DeviceAddress, msg.Topic, bs)
 	if ch, ok := connections[msg.DeviceAddress]; ok {
 		select {
 		case ch <- DataUpdate{DataToSend: msg, Disconnect: false}:
@@ -121,6 +136,7 @@ func SendMessageToLocalRouter(msg DataToSend) {
 			fmt.Println("Channel is full or blocked, message not sent to connection")
 		}
 	}
+	return nil
 }
 
 func RouteMessageToProperServer(msg DataToSend, server string) (*http.Response, error) {

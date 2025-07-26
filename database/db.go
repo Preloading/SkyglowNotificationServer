@@ -20,6 +20,7 @@ type UnacknowledgedMessages struct {
 	ID            uint64 `gorm:"primaryKey"`
 	MessageId     string `gorm:"index"`
 	DeviceAddress string
+	RouterAddress []byte
 	Message       string
 	Topic         string
 	CreatedAt     time.Time `gorm:"autoCreateTime"`
@@ -66,10 +67,11 @@ func AckMessage(message_id string, device_uuid string) {
 	db.Delete(&UnacknowledgedMessages{}, "message_id = ? AND device_address = ?", message_id, device_uuid)
 }
 
-func AddMessage(message_id string, message string, device_uuid string, topic string) {
+func AddMessage(message_id string, message string, device_uuid string, topic string, routingKey []byte) {
 	db.Create(&UnacknowledgedMessages{
 		MessageId:     message_id,
 		DeviceAddress: device_uuid,
+		RouterAddress: routingKey,
 		Message:       message,
 		Topic:         topic,
 		CreatedAt:     time.Now(),
