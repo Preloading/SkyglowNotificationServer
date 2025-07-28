@@ -28,10 +28,10 @@ type DataToSend struct {
 	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
 
 	// Data for the server
-
-	MessageId string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
-	TotalHops int      `json:"total_hops,omitempty" plist:"-"`
-	Hops      []string `json:"hops,omitempty" plist:"-"`
+	StrictBundleId bool     `json:"strict_bundle_id,omitempty" plist:"-"`
+	MessageId      string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
+	TotalHops      int      `json:"total_hops,omitempty" plist:"-"`
+	Hops           []string `json:"hops,omitempty" plist:"-"`
 }
 
 type DataUpdate struct {
@@ -104,8 +104,7 @@ func SendMessageToRouter(msg DataToSend) error {
 func SendMessageToLocalRouter(msg DataToSend) error {
 	msg.MessageId = uuid.New().String()
 
-	// maybe sanitize this a bit better
-	if msg.AlertSound == "" {
+	if msg.AlertSound == "default" {
 		msg.AlertSound = "UILocalNotificationDefaultSoundName" // I checked, and it does UILocalNotificationDefaultSoundName is set to UILocalNotificationDefaultSoundName
 	}
 
@@ -123,7 +122,16 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 		return errors.New("routing key invalid")
 	}
 
-	msg.Topic = deviceInfo.AppBundleId
+	if msg.StrictBundleId {
+		if msg.Topic != deviceInfo.AppBundleId {
+			return errors.New("bundle id isn't correct for this routing key")
+		}
+	} else {
+		if msg.Topic != deviceInfo.AppBundleId {
+			msg.Topic = deviceInfo.AppBundleId
+		}
+	}
+
 	msg.DeviceAddress = deviceInfo.DeviceAddress
 
 	db.AddMessage(msg.MessageId, msg.AlertBody, msg.DeviceAddress, msg.Topic, bs)

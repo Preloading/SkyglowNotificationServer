@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -265,7 +266,9 @@ func handleConnection(c net.Conn) {
 					}
 
 					db.SaveNewToken(userAddress, routingId, bundleId, 0b111)
-					log.Printf("Saved a new token.")
+					hexRouting := hex.EncodeToString(routingId)
+
+					log.Printf("Saved a new token. Token checksum %s", hexRouting)
 					if err := sendMessageToClient(c, AckDeviceToken{
 						Message:      Message{Type: 5},
 						RoutingToken: routingId,

@@ -144,7 +144,7 @@ func GetUser(device_address string) (*Device, error) {
 
 func GetToken(routing_token []byte) (*NotificationToken, error) {
 	var notificationToken NotificationToken
-	result := db.First(&notificationToken, "routing_key = ?", routing_token)
+	result := db.First(&notificationToken, "routing_token = ?", routing_token)
 	if result.Error != nil {
 		return nil, result.Error
 	}
