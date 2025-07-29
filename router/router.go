@@ -25,6 +25,7 @@ type DataToSend struct {
 	Topic         string `json:"topic" plist:"topic"`
 	AlertAction   string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
 	AlertSound    string `json:"alert_sound,omitempty" plist:"alert_sound"`   // Default to UILocalNotificationDefaultSoundName
+	BadgeNumber   int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
 	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
 
 	// Data for the server
