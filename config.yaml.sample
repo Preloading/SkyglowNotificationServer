@@ -1,0 +1,12 @@
+TCP_PORT: 7373
+
+# The server address is used for routing messages.
+# You must have control over this domain, and you
+# need to create a TXT record on your server that
+# looks like this:
+# TXT _sgn.example.com="tcp_addr=tcp.sgn.example.com tcp_port=7373 http_addr=https://sgn.example.com"
+# the example.com part of _sgn.example.com must be the server address
+# Due to technical limitations (Reusing APNS's registation), this is limited to 16 charectors.
+SERVER_ADDRESS: example.com
+
+DB_DSN: sqlite:///./sqlite.db
