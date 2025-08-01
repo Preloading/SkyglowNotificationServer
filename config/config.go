@@ -3,7 +3,6 @@
 package config
 
 import (
-	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
 	"os"
@@ -21,8 +20,6 @@ type Config struct {
 }
 
 type CryptoKeys struct {
-	ServerPrivateKey      *rsa.PrivateKey // depericated
-	ServerPublicKey       *rsa.PublicKey  // depericated
 	ServerPublicKeyString *string
 	ServerTLSCert         *tls.Certificate
 }
@@ -33,10 +30,12 @@ func LoadConfig() (config Config, err error) {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 
-	err = viper.ReadInConfig()
-	if err != nil {
-		return config, fmt.Errorf("error reading config file: %w", err)
-	}
+	viper.SetEnvPrefix("SGN")
+
+	viper.ReadInConfig()
+	// if err != nil {
+	// 	return config, fmt.Errorf("error reading config file: %w", err)
+	// }
 
 	err = viper.Unmarshal(&config)
 	if err != nil {
