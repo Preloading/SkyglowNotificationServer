@@ -17,22 +17,32 @@ import (
 )
 
 type DataToSend struct {
+	// metadata
+	IsEncrypted bool `json:"is_encrypted,omitempty" plist:"is_encrypted"`
+
+	// Unencrypted message data
+	AlertBody   string `json:"message,omitempty" plist:"message"`
+	AlertAction string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
+	AlertSound  string `json:"alert_sound,omitempty" plist:"alert_sound"`   // Default to UILocalNotificationDefaultSoundName
+	BadgeNumber int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
+	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+
+	// Encrypted message data
+	Ciphertext []byte `json:"ciphertext" plist:"ciphertext"`
+	DataType   string `json:"data_type" plist:"data_type"` // json or plist
+	IV         []byte `json:"iv" plist:"iv"`
+
+	// Routing info
 	RoutingKeyStr string `json:"routing_key" plist:"-"`
 	RoutingKey    []byte `json:"-" plist:"routing_key"`
 	DeviceAddress string `json:"-" plist:"-"`
 	ServerAddress string `json:"server_address" plist:"-"`
-	AlertBody     string `json:"message" plist:"message"`
-	Topic         string `json:"topic" plist:"topic"`
-	AlertAction   string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
-	AlertSound    string `json:"alert_sound,omitempty" plist:"alert_sound"`   // Default to UILocalNotificationDefaultSoundName
-	BadgeNumber   int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
-	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
 
-	// Data for the server
-	StrictBundleId bool     `json:"strict_bundle_id,omitempty" plist:"-"`
-	MessageId      string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
-	TotalHops      int      `json:"total_hops,omitempty" plist:"-"`
-	Hops           []string `json:"hops,omitempty" plist:"-"`
+	Topic string `json:"topic" plist:"topic"`
+
+	MessageId string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
+	TotalHops int      `json:"total_hops,omitempty" plist:"-"`
+	Hops      []string `json:"hops,omitempty" plist:"-"`
 }
 
 type DataUpdate struct {
@@ -123,14 +133,12 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 		return errors.New("routing key invalid")
 	}
 
-	if msg.StrictBundleId {
+	if msg.Topic != "" {
 		if msg.Topic != deviceInfo.AppBundleId {
 			return errors.New("bundle id isn't correct for this routing key")
 		}
 	} else {
-		if msg.Topic != deviceInfo.AppBundleId {
-			msg.Topic = deviceInfo.AppBundleId
-		}
+		msg.Topic = deviceInfo.AppBundleId
 	}
 
 	msg.DeviceAddress = deviceInfo.DeviceAddress

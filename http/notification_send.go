@@ -9,7 +9,7 @@ func NotificationSend(c *fiber.Ctx) error {
 	var data router.DataToSend
 	if err := c.BodyParser(&data); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request",
+			"status": err.Error(),
 		})
 	}
 
@@ -20,7 +20,7 @@ func NotificationSend(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"status": "Message sent",
+		"status": "sucess",
 		"data":   data,
 	})
 }
