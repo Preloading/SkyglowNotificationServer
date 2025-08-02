@@ -34,6 +34,7 @@ func LoadConfig() (config Config, err error) {
 
 	viper.SetEnvPrefix("SGN")
 
+	viper.AutomaticEnv()
 	viper.ReadInConfig()
 	// if err != nil {
 	// 	return config, fmt.Errorf("error reading config file: %w", err)
