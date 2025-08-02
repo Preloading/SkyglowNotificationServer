@@ -34,6 +34,13 @@ func LoadConfig() (config Config, err error) {
 
 	viper.SetEnvPrefix("SGN")
 
+	// work i stg
+	viper.BindEnv("KEY_PATH")
+	viper.BindEnv("SERVER_ADDRESS")
+	viper.BindEnv("TCP_PORT")
+	viper.BindEnv("DB_TYPE")
+	viper.BindEnv("DB_DSN")
+
 	viper.AutomaticEnv()
 	viper.ReadInConfig()
 	// if err != nil {
