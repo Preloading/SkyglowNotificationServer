@@ -9,5 +9,7 @@ TCP_PORT: 7373
 # Due to technical limitations (Reusing APNS's registation), this is limited to 16 charectors.
 SERVER_ADDRESS: example.com
 
+KEY_PATH: keys
+
 DB_TYPE: sqlite
 DB_DSN: sqlite.db

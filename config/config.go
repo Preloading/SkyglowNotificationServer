@@ -18,6 +18,7 @@ type Config struct {
 	WhitelistOn      bool     `mapstructure:"WHITELIST_ON"`
 	DB_TYPE          string   `mapstructure:"DB_TYPE"`
 	DB_DSN           string   `mapstructure:"DB_DSN"`
+	KEY_PATH         string   `mapstructure:"KEY_PATH"`
 }
 
 type CryptoKeys struct {
@@ -46,13 +47,13 @@ func LoadConfig() (config Config, err error) {
 	return config, nil
 }
 
-func LoadCryptoKeys() (keys *CryptoKeys, err error) {
-	cert, err := tls.LoadX509KeyPair("keys/server_public_key.pem", "keys/server_private_key.pem")
+func LoadCryptoKeys(keyPath string) (keys *CryptoKeys, err error) {
+	cert, err := tls.LoadX509KeyPair(fmt.Sprintf("%s/server_public_key.pem", keyPath), fmt.Sprintf("%s/server_private_key.pem", keyPath))
 	if err != nil {
 		return nil, err
 	}
 
-	serverPubKeyBytes, err := os.ReadFile("keys/server_public_key.pem")
+	serverPubKeyBytes, err := os.ReadFile(fmt.Sprintf("%s/server_public_key.pem", keyPath))
 	if err != nil {
 		return keys, fmt.Errorf("error reading server public key: %w", err)
 	}

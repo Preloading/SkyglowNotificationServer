@@ -12,27 +12,27 @@ import (
 )
 
 func main() {
-	keys, err := config.LoadCryptoKeys()
+	c, err := config.LoadConfig()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Loaded config successfully")
+	if len(c.ServerAddress) > 16 {
+		panic(errors.New("server address is greater than 16 in length! Please change to be 16 or under charactors"))
+	}
+
+	keys, err := config.LoadCryptoKeys(c.KEY_PATH)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Loaded keys successfully")
 
-	config, err := config.LoadConfig()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Loaded config successfully")
-	if len(config.ServerAddress) > 16 {
-		panic(errors.New("server address is greater than 16 in length! Please change to be 16 or under charactors"))
-	}
-
 	// Initialize the database connection
-	db.InitDB(config.DB_DSN, config.DB_TYPE)
-	router.Config = config
+	db.InitDB(c.DB_DSN, c.DB_TYPE)
+	router.Config = c
 	fmt.Println("Starting TCP Server...")
-	go tcpproto.CreateTCPServer(uint16(config.TCPPort), *keys, config)
+	go tcpproto.CreateTCPServer(uint16(c.TCPPort), *keys, c)
 	fmt.Println("Starting HTTP Server...")
-	go http.CreateHTTPServer(*keys, config)
+	go http.CreateHTTPServer(*keys, c)
 	select {}
 }
