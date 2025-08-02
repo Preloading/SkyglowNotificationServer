@@ -41,7 +41,7 @@ type NotificationToken struct {
 type DevicesDB struct {
 	gorm.Model
 	DeviceAddress string `gorm:"primaryKey"`
-	PublicKey     string
+	PublicKey     []byte
 	Language      string
 }
 
@@ -97,7 +97,7 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 
 	db.Create(&DevicesDB{
 		DeviceAddress: device_address,
-		PublicKey:     string(encodedPubKey),
+		PublicKey:     encodedPubKey,
 	})
 	return nil
 }
@@ -136,7 +136,7 @@ func GetUser(device_address string) (*Device, error) {
 
 	// Decode the public key
 	var err error
-	parsedKey, err := x509.ParsePKIXPublicKey([]byte(device.PublicKey))
+	parsedKey, err := x509.ParsePKIXPublicKey(device.PublicKey)
 	if err != nil {
 		return nil, err
 	}
