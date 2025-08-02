@@ -16,6 +16,7 @@ type Config struct {
 	WhitelistedUUIDs []string `mapstructure:"WHITELISTED_UUIDS"`
 	BlacklistUUIDs   []string `mapstructure:"BLACKLISTED_UUIDS"`
 	WhitelistOn      bool     `mapstructure:"WHITELIST_ON"`
+	DB_TYPE          string   `mapstructure:"DB_TYPE"`
 	DB_DSN           string   `mapstructure:"DB_DSN"`
 }
 

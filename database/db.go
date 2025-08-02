@@ -7,6 +7,8 @@ import (
 	"log"
 	"time"
 
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -49,10 +51,19 @@ type Device struct {
 	Language      string
 }
 
-func InitDB(dsn string) {
+func InitDB(dsn string, database_type string) {
 	// Initialize the database connection
 	var err error
-	db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	switch database_type {
+	case "sqlite":
+		db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	case "mysql":
+		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	case "postgres":
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	default:
+		panic("unsupported database type")
+	}
 	if err != nil {
 		log.Fatal(err)
 		panic(err)
