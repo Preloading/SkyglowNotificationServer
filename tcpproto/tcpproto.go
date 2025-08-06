@@ -103,10 +103,12 @@ func handleConnection(c net.Conn) {
 		n, err := c.Read(messageLen)
 		if err != nil {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 		if n != 4 {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 		messageSize := uint32(messageLen[0])<<24 | uint32(messageLen[1])<<16 | uint32(messageLen[2])<<8 | uint32(messageLen[3]) // hate. this was copilot, if there's a nicer way, PR.
@@ -117,16 +119,19 @@ func handleConnection(c net.Conn) {
 		n, err = c.Read(plistMessage)
 		if err != nil {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 		if n != int(messageSize) {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 
 		message := make(map[string]interface{})
 		if _, err := plist.Unmarshal(plistMessage, message); err != nil {
 			log.Printf("Read error (plist decode) from %s: %v\n", c.RemoteAddr().String(), err)
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 
@@ -144,11 +149,13 @@ func handleConnection(c net.Conn) {
 					// verify they actually sent what we need
 					userAddress, ok = message["address"].(string)
 					if !ok {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 					// load client data
 					device, err = db.GetUser(userAddress)
 					if err != nil {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
@@ -165,12 +172,14 @@ func handleConnection(c net.Conn) {
 					challengeDecrypted := fmt.Sprintf("%s,%s,%s", userAddress, authenticationNonce, authTimestamp)
 					challengeEncrypted, err := encryptWithPubKey([]byte(challengeDecrypted), device.PublicKey)
 					if err != nil {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
 					// store the user's language for this session
 					userLang, ok = message["lang"].(string)
 					if !ok {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
@@ -178,6 +187,7 @@ func handleConnection(c net.Conn) {
 						Message:   Message{Type: 1},
 						Challenge: *challengeEncrypted,
 					}, 1); err != nil {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
@@ -210,19 +220,23 @@ func handleConnection(c net.Conn) {
 										return
 									}
 									log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
+									sendMessageToClient(c, nil, 4)
 									return
 								}
 							}
 						}()
 						if err := sendMessageToClient(c, nil, 3); err != nil {
+							sendMessageToClient(c, nil, 4)
 							return
 						}
 					} else {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
 				default:
 					log.Printf("An invalid unauthenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					sendMessageToClient(c, nil, 4)
 					return
 				}
 			} else {
@@ -245,10 +259,12 @@ func handleConnection(c net.Conn) {
 				case 3: // Ack Notification
 					// get the notification id
 					if message["notification"] == nil || message["notification"] == "" {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 					notificationId, ok := message["notification"].(string)
 					if !ok {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
@@ -258,10 +274,12 @@ func handleConnection(c net.Conn) {
 				case 5: // Recieve token
 					routingId, ok := message["deviceTokenChecksum"].([]byte)
 					if !ok {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 					bundleId, ok := message["appBundleId"].(string)
 					if !ok {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 
@@ -273,15 +291,18 @@ func handleConnection(c net.Conn) {
 						Message:      Message{Type: 5},
 						RoutingToken: routingId,
 					}, 5); err != nil {
+						sendMessageToClient(c, nil, 4)
 						return
 					}
 				default:
 					log.Printf("An invalid authenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
+					sendMessageToClient(c, nil, 4)
 					return
 				}
 			}
 		} else {
 			log.Printf("Invalid message format from %s: $type is not uint64\n", c.RemoteAddr().String())
+			sendMessageToClient(c, nil, 4)
 			return
 		}
 	}

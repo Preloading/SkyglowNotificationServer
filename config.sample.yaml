@@ -1,4 +1,5 @@
 TCP_PORT: 7373
+HTTP_PORT: 7878
 
 # The server address is used for routing messages.
 # You must have control over this domain, and you
