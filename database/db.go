@@ -44,7 +44,6 @@ type Device struct {
 }
 
 func ResetDatabase() error {
-	fmt.Println("Could not find tables, creating...")
 	_, err := db.Exec(initDbSQL)
 	return err
 }
