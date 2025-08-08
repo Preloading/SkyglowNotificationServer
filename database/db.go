@@ -58,7 +58,7 @@ func InitDB(dsn string, database_type string) {
 	case "mysql":
 		db, err = sql.Open("mysql", dsn)
 	case "postgres":
-		db, err = sql.Open("postgres", dsn)
+		db, err = sql.Open("pgx", dsn)
 	default:
 		panic("unsupported database type")
 	}
