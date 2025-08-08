@@ -3,46 +3,38 @@ package db
 import (
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
+	_ "embed"
 	"fmt"
 	"log"
 	"time"
 
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-var (
-	db *gorm.DB
-)
+//go:embed init.sql
+var initDbSQL string
 
-type UnacknowledgedMessages struct {
-	gorm.Model
-	ID            uint64 `gorm:"primaryKey"`
-	MessageId     string `gorm:"index"`
+var db *sql.DB
+
+type QueuedMessage struct {
+	MessageId     string `gorm:"primaryKey"`
 	DeviceAddress string
-	RouterAddress []byte
+	RoutingKey    []byte
 	Message       string
 	Topic         string
 	CreatedAt     time.Time `gorm:"autoCreateTime"`
 }
 
 type NotificationToken struct {
-	gorm.Model
 	RoutingToken     []byte `gorm:"primaryKey"`
 	DeviceAddress    string
 	NotificationType int       // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
 	AppBundleId      string    // example: com.atebits.tweetie2
 	IssuedAt         time.Time `gorm:"autoCreateTime"`
 	IsValid          bool      // Unsure if this should be kept
-}
-
-type DevicesDB struct {
-	gorm.Model
-	DeviceAddress string `gorm:"primaryKey"`
-	PublicKey     []byte
-	Language      string
+	LastUsed         *time.Time
 }
 
 type Device struct {
@@ -51,16 +43,22 @@ type Device struct {
 	Language      string
 }
 
+func ResetDatabase() error {
+	fmt.Println("Could not find tables, creating...")
+	_, err := db.Exec(initDbSQL)
+	return err
+}
+
 func InitDB(dsn string, database_type string) {
 	// Initialize the database connection
 	var err error
 	switch database_type {
 	case "sqlite":
-		db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		db, err = sql.Open("sqlite3", dsn)
 	case "mysql":
-		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		db, err = sql.Open("mysql", dsn)
 	case "postgres":
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = sql.Open("postgres", dsn)
 	default:
 		panic("unsupported database type")
 	}
@@ -69,24 +67,26 @@ func InitDB(dsn string, database_type string) {
 		panic(err)
 	}
 
-	db.AutoMigrate(&NotificationToken{})
-	db.AutoMigrate(&UnacknowledgedMessages{})
-	db.AutoMigrate(&DevicesDB{})
+	pingErr := db.Ping()
+	if pingErr != nil {
+		log.Fatal(pingErr)
+		panic(pingErr)
+	}
+
+	err = ResetDatabase()
+	if err != nil {
+		panic(err)
+	}
 }
 
-func AckMessage(message_id string, device_uuid string) {
-	db.Delete(&UnacknowledgedMessages{}, "message_id = ? AND device_address = ?", message_id, device_uuid)
+func AckMessage(message_id string, device_uuid string) error {
+	_, err := db.Exec("DELETE FROM queued_messages WHERE message_id = ? AND device_address = ?", message_id, device_uuid)
+	return err
 }
 
-func AddMessage(message_id string, message string, device_uuid string, topic string, routingKey []byte) {
-	db.Create(&UnacknowledgedMessages{
-		MessageId:     message_id,
-		DeviceAddress: device_uuid,
-		RouterAddress: routingKey,
-		Message:       message,
-		Topic:         topic,
-		CreatedAt:     time.Now(),
-	})
+func AddMessage(message_id string, message string, device_address string, topic string, routingKey []byte) error {
+	_, err := db.Exec("INSERT INTO queued_messages (message_id, device_address, routing_key, message, topic, created_at) VALUES (?, ?, ?, ?, ?, ?)", message_id, device_address, routingKey, message, topic, time.Now())
+	return err
 }
 
 func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
@@ -95,77 +95,85 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 		return err
 	}
 
-	db.Create(&DevicesDB{
-		DeviceAddress: device_address,
-		PublicKey:     encodedPubKey,
-	})
-	return nil
+	_, err = db.Exec("INSERT INTO devices (device_address, pub_key, lang) VALUES (?, ?, ?)", device_address, encodedPubKey, "")
+	if err != nil {
+		panic(err)
+	}
+	return err
 }
 
 func UpdateLanguage(device_address string, language string) error {
-	var device DevicesDB
-	result := db.First(&device, "device_address = ?", device_address)
-	if result.Error != nil {
-		return result.Error
-	}
-	device.Language = language
-	result = db.Save(device)
-	if result.Error != nil {
-		return result.Error
-	}
-	return nil
+	_, err := db.Exec("UPDATE devices WHERE device_address = ? SET lang = ?", device_address, language)
+
+	return err
 }
 
 func SaveNewToken(device_address string, routingToken []byte, bundleId string, notificationType int) error {
-	db.Create(&NotificationToken{
-		DeviceAddress:    device_address,
-		AppBundleId:      bundleId,
-		RoutingToken:     routingToken,
-		NotificationType: notificationType,
-		IsValid:          true,
-	})
-	return nil
+	_, err := db.Exec("INSERT INTO notification_tokens (device_address, bundle_id, routing_token, allowed_notification_types, is_valid, issued_at) VALUES (?, ?, ?, ?, ?, ?)",
+		device_address, bundleId, routingToken, notificationType, true, time.Now(),
+	)
+	fmt.Println(err)
+	return err
 }
 
 func GetUser(device_address string) (*Device, error) {
-	var device DevicesDB
-	result := db.First(&device, "device_address = ?", device_address)
-	if result.Error != nil {
-		return nil, result.Error
+	device := Device{}
+	row := db.QueryRow("SELECT * FROM devices WHERE device_address = ?", device_address)
+
+	byteKey := []byte{}
+	if err := row.Scan(&device.DeviceAddress, &byteKey, &device.Language); err != nil {
+		return nil, err
 	}
 
 	// Decode the public key
-	var err error
-	parsedKey, err := x509.ParsePKIXPublicKey(device.PublicKey)
+	// var err error
+	parsedKey, err := x509.ParsePKIXPublicKey(byteKey)
 	if err != nil {
 		return nil, err
 	}
 
-	pubKey, ok := parsedKey.(*rsa.PublicKey)
+	ok := false
+	device.PublicKey, ok = parsedKey.(*rsa.PublicKey)
 	if !ok {
 		return nil, fmt.Errorf("key is not an RSA public key")
 	}
 
-	return &Device{
-		DeviceAddress: device.DeviceAddress,
-		PublicKey:     pubKey,
-		Language:      device.Language,
-	}, nil
+	return &device, nil
 }
 
 func GetToken(routing_token []byte) (*NotificationToken, error) {
-	var notificationToken NotificationToken
-	result := db.First(&notificationToken, "routing_token = ?", routing_token)
-	if result.Error != nil {
-		return nil, result.Error
-	}
+	notificationToken := NotificationToken{}
 
-	// Decode the public key
+	row := db.QueryRow("SELECT * FROM notification_tokens WHERE routing_token = ?", routing_token)
+
+	if err := row.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed); err != nil {
+		panic(err)
+		return nil, err
+	}
 	return &notificationToken, nil
 }
 
-func GetUnacknowledgedMessages(device_address string) []UnacknowledgedMessages {
-	var messages []UnacknowledgedMessages
-	db.Find(&messages, "device_address = ?", device_address)
-	return messages
+func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
+	var messages []QueuedMessage
+
+	rows, err := db.Query("SELECT * FROM queued_messages WHERE device_address = ?", device_address)
+	if err != nil {
+		return messages, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var message QueuedMessage
+		if err := rows.Scan(&message.MessageId, &message.DeviceAddress, &message.RoutingKey, &message.Message, &message.Topic, &message.CreatedAt); err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return messages, nil
 }

@@ -243,7 +243,7 @@ func handleConnection(c net.Conn) {
 				// Authenticated requests
 				switch typeVal {
 				case 2: // Poll Unacked Notifications
-					unackedNotifications := db.GetUnacknowledgedMessages(userAddress)
+					unackedNotifications, _ := db.GetUnacknowledgedMessages(userAddress)
 					if len(unackedNotifications) == 0 {
 						continue
 					}
