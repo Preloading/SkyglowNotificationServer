@@ -5,14 +5,14 @@ CREATE TABLE IF NOT EXISTS queued_messages (
   message VARCHAR(255) NOT NULL,
   topic VARCHAR(64) NOT NULL,
   created_at DATETIME NOT NULL,
-  PRIMARY KEY (`message_id`)
+  PRIMARY KEY ("message_id")
 );
 
 CREATE TABLE IF NOT EXISTS devices (
   device_address VARCHAR(64) NOT NULL,
   pub_key BLOB NOT NULL,
   lang VARCHAR(8) NOT NULL,
-  PRIMARY KEY (`device_address`)
+  PRIMARY KEY ("device_address")
 );
 
 CREATE TABLE IF NOT EXISTS notification_tokens (
@@ -23,5 +23,5 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
   issued_at DATETIME NOT NULL,
   is_valid integer NOT NULL,
   last_used DATETIME,
-  PRIMARY KEY (`routing_token`)
+  PRIMARY KEY ("routing_token")
 );
