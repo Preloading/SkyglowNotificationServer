@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
   allowed_notification_types integer NOT NULL,
   bundle_id VARCHAR(64) NOT NULL,
   issued_at TIMESTAMP NOT NULL,
-  is_valid integer NOT NULL,
+  is_valid BOOLEAN NOT NULL,
   last_used TIMESTAMP,
   PRIMARY KEY ("routing_token")
 );
