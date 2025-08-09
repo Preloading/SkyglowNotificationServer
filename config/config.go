@@ -16,7 +16,6 @@ type Config struct {
 	WhitelistedUUIDs []string `mapstructure:"WHITELISTED_UUIDS"`
 	BlacklistUUIDs   []string `mapstructure:"BLACKLISTED_UUIDS"`
 	WhitelistOn      bool     `mapstructure:"WHITELIST_ON"`
-	DB_TYPE          string   `mapstructure:"DB_TYPE"`
 	DB_DSN           string   `mapstructure:"DB_DSN"`
 	KEY_PATH         string   `mapstructure:"KEY_PATH"`
 }
@@ -38,7 +37,6 @@ func LoadConfig() (config Config, err error) {
 	viper.BindEnv("KEY_PATH")
 	viper.BindEnv("SERVER_ADDRESS")
 	viper.BindEnv("TCP_PORT")
-	viper.BindEnv("DB_TYPE")
 	viper.BindEnv("DB_DSN")
 
 	viper.AutomaticEnv()

@@ -12,5 +12,5 @@ SERVER_ADDRESS: example.com
 
 KEY_PATH: keys
 
-DB_TYPE: sqlite
-DB_DSN: sqlite.db
+# this is only postgres now, sorry!
+DB_DSN: 

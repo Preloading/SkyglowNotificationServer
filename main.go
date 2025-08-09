@@ -28,7 +28,7 @@ func main() {
 	fmt.Println("Loaded keys successfully")
 
 	// Initialize the database connection
-	db.InitDB(c.DB_DSN, c.DB_TYPE)
+	db.InitDB(c.DB_DSN)
 	router.Config = c
 	fmt.Println("Starting TCP Server...")
 	go tcpproto.CreateTCPServer(uint16(c.TCPPort), *keys, c)
