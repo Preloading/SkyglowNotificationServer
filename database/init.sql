@@ -1,10 +1,23 @@
-CREATE TABLE IF NOT EXISTS queued_messages (
-  message_id VARCHAR(36) NOT NULL,
+CREATE TABLE IF NOT EXISTS queued_messages (  
+  created_at TIMESTAMP NOT NULL,
+
+  is_encrypted BOOLEAN NOT NULL,
+
+  -- unencrypted msg data
+  alert_body VARCHAR(255),
+  alert_action VARCHAR(255),
+  alert_sound VARCHAR(255),
+  badge_number integer,
+
+  -- encrypted message data
+  ciphertext BYTEA,
+  data_type VARCHAR(8),
+  iv BYTEA,
+  
+  -- routing info
   device_address VARCHAR(64) NOT NULL,
   routing_key BYTEA NOT NULL,
-  message VARCHAR(255) NOT NULL,
-  topic VARCHAR(64) NOT NULL,
-  created_at TIMESTAMP NOT NULL,
+  message_id VARCHAR(36) NOT NULL,
   PRIMARY KEY ("message_id")
 );
 

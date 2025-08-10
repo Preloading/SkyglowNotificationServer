@@ -20,12 +20,27 @@ var initDbSQL string
 var db *sql.DB
 
 type QueuedMessage struct {
-	MessageId     string
-	DeviceAddress string
-	RoutingKey    []byte
-	Message       string
-	Topic         string
-	CreatedAt     time.Time
+	MessageId string
+	CreatedAt time.Time
+
+	// mostly copied from DataToSend
+	IsEncrypted bool `json:"is_encrypted,omitempty" plist:"is_encrypted"`
+
+	// Unencrypted message data
+	AlertBody   *string `json:"message,omitempty" plist:"message"`
+	AlertAction *string `json:"alert_action,omitempty" plist:"alert_action"`
+	AlertSound  *string `json:"alert_sound,omitempty" plist:"alert_sound"`
+	BadgeNumber *int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
+	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+
+	// Encrypted message data
+	Ciphertext *[]byte `json:"ciphertext" plist:"ciphertext"`
+	DataType   *string `json:"data_type" plist:"data_type"` // json or plist
+	IV         *[]byte `json:"iv" plist:"iv"`
+
+	// Routing info
+	RoutingKey    []byte `json:"-" plist:"routing_key"`
+	DeviceAddress string `json:"-" plist:"-"`
 }
 
 type NotificationToken struct {
@@ -76,8 +91,21 @@ func AckMessage(message_id string, device_uuid string) error {
 	return err
 }
 
-func AddMessage(message_id string, message string, device_address string, topic string, routingKey []byte) error {
-	_, err := db.Exec("INSERT INTO queued_messages (message_id, device_address, routing_key, message, topic, created_at) VALUES ($1, $2, $3, $4, $5, $6)", message_id, device_address, routingKey, message, topic, time.Now())
+func QueueEncryptedMessage(m QueuedMessage) error {
+	db.Exec("DELETE FROM queued_messages WHERE routing_key = $1", m.RoutingKey) // clean out old msgs.
+	_, err := db.Exec("INSERT INTO queued_messages (message_id, created_at, is_encrypted, ciphertext, data_type, iv, device_address, routing_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+		m.MessageId, m.CreatedAt, m.IsEncrypted, *m.Ciphertext, *m.DataType, *m.IV, m.DeviceAddress, m.RoutingKey,
+	)
+
+	return err
+}
+
+func QueueUnencryptedMessage(m QueuedMessage) error {
+	db.Exec("DELETE FROM queued_messages WHERE routing_key = $1", m.RoutingKey) // clean out old msgs.
+	_, err := db.Exec("INSERT INTO queued_messages (message_id, created_at, is_encrypted, alert_body, alert_action, alert_sound, badge_number, device_address, routing_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		m.MessageId, m.CreatedAt, m.IsEncrypted, *m.AlertBody, *m.AlertAction, *m.AlertSound, *m.BadgeNumber, m.DeviceAddress, m.RoutingKey,
+	)
+
 	return err
 }
 
@@ -156,7 +184,11 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 
 	for rows.Next() {
 		var message QueuedMessage
-		if err := rows.Scan(&message.MessageId, &message.DeviceAddress, &message.RoutingKey, &message.Message, &message.Topic, &message.CreatedAt); err != nil {
+		if err := rows.Scan(&message.CreatedAt,
+			&message.IsEncrypted, &message.AlertBody, &message.AlertAction, &message.AlertSound, &message.BadgeNumber, // Unencrypted info
+			&message.Ciphertext, &message.DataType, &message.IV, // Encrypted info
+			&message.DeviceAddress, &message.RoutingKey, &message.MessageId, // Routing info
+		); err != nil {
 			return nil, err
 		}
 		messages = append(messages, message)

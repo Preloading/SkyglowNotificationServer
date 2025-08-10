@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	configPkg "github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
@@ -120,15 +121,15 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 	}
 
 	// decode routing key hex
-	bs, err := hex.DecodeString(msg.RoutingKeyStr)
+	routingKey, err := hex.DecodeString(msg.RoutingKeyStr)
 	if err != nil {
 		return errors.New("routing key not in hex")
 	}
 
-	msg.RoutingKey = bs
+	msg.RoutingKey = routingKey
 
 	// query device address
-	deviceInfo, err := db.GetToken(bs)
+	deviceInfo, err := db.GetToken(routingKey)
 	if err != nil {
 		return errors.New("routing key invalid")
 	}
@@ -143,7 +144,43 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 
 	msg.DeviceAddress = deviceInfo.DeviceAddress
 
-	db.AddMessage(msg.MessageId, msg.AlertBody, msg.DeviceAddress, msg.Topic, bs)
+	if msg.IsEncrypted {
+		err := db.QueueEncryptedMessage(db.QueuedMessage{
+			MessageId: msg.MessageId,
+			CreatedAt: time.Now(),
+
+			IsEncrypted: true,
+
+			Ciphertext: &msg.Ciphertext,
+			DataType:   &msg.DataType,
+			IV:         &msg.IV,
+
+			RoutingKey:    routingKey,
+			DeviceAddress: msg.DeviceAddress,
+		})
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	} else {
+		err := db.QueueUnencryptedMessage(db.QueuedMessage{
+			MessageId: msg.MessageId,
+			CreatedAt: time.Now(),
+
+			IsEncrypted: false,
+
+			AlertBody:   &msg.AlertBody,
+			AlertAction: &msg.AlertAction,
+			AlertSound:  &msg.AlertSound,
+			BadgeNumber: &msg.BadgeNumber,
+
+			RoutingKey:    routingKey,
+			DeviceAddress: msg.DeviceAddress,
+		})
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}
+
 	if ch, ok := connections[msg.DeviceAddress]; ok {
 		select {
 		case ch <- DataUpdate{DataToSend: msg, Disconnect: false}:

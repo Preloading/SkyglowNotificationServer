@@ -243,17 +243,41 @@ func handleConnection(c net.Conn) {
 				// Authenticated requests
 				switch typeVal {
 				case 2: // Poll Unacked Notifications
-					unackedNotifications, _ := db.GetUnacknowledgedMessages(userAddress)
+					unackedNotifications, err := db.GetUnacknowledgedMessages(userAddress)
+					if err != nil {
+						fmt.Println(err.Error())
+					}
 					if len(unackedNotifications) == 0 {
 						continue
 					}
 					for _, unackedNotification := range unackedNotifications {
 						log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
-						sendNotificationToClient(c, router.DataToSend{ // TODO: make this better
-							AlertBody: unackedNotification.Message,
-							Topic:     unackedNotification.Topic,
-							MessageId: unackedNotification.MessageId,
-						})
+						if unackedNotification.IsEncrypted {
+							sendNotificationToClient(c, router.DataToSend{
+								IsEncrypted: unackedNotification.IsEncrypted,
+
+								Ciphertext: *unackedNotification.Ciphertext,
+								DataType:   *unackedNotification.DataType,
+								IV:         *unackedNotification.IV,
+
+								DeviceAddress: unackedNotification.DeviceAddress,
+								RoutingKey:    unackedNotification.RoutingKey,
+								MessageId:     unackedNotification.MessageId,
+							})
+						} else {
+							sendNotificationToClient(c, router.DataToSend{
+								IsEncrypted: unackedNotification.IsEncrypted,
+
+								AlertBody:   *unackedNotification.AlertBody,
+								AlertSound:  *unackedNotification.AlertSound,
+								AlertAction: *unackedNotification.AlertAction,
+								BadgeNumber: *unackedNotification.BadgeNumber,
+
+								DeviceAddress: unackedNotification.DeviceAddress,
+								RoutingKey:    unackedNotification.RoutingKey,
+								MessageId:     unackedNotification.MessageId,
+							})
+						}
 					}
 
 				case 3: // Ack Notification
