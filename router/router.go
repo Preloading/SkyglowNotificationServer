@@ -51,6 +51,10 @@ type DataUpdate struct {
 	Disconnect bool
 }
 
+type RemoveToken struct {
+	DeviceToken []byte
+}
+
 type ServerTXT struct {
 	TCPAddress  string
 	TCPPort     int
@@ -132,6 +136,14 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 	deviceInfo, err := db.GetToken(routingKey)
 	if err != nil {
 		return errors.New("routing key invalid")
+	}
+
+	if !deviceInfo.IsValid {
+		if deviceInfo.MarkedForRemovalAt != nil {
+			return errors.New("routing key is marked for removal")
+		} else {
+			return errors.New("routing key is no longer valid")
+		}
 	}
 
 	if msg.Topic != "" {

@@ -36,5 +36,23 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
   issued_at TIMESTAMP NOT NULL,
   is_valid BOOLEAN NOT NULL,
   last_used TIMESTAMP,
+  marked_for_removal_at TIMESTAMP,
   PRIMARY KEY ("routing_token")
+);
+
+-- other server's (& ours) feedback relation to the token
+CREATE TABLE IF NOT EXISTS feedback_token (
+  feedback_key BYTEA NOT NULL,
+  routing_token BYTEA NOT NULL,
+  last_used TIMESTAMP NOT NULL,
+  PRIMARY KEY ("routing_token")
+);
+
+-- feedback on service's trusted server
+CREATE TABLE IF NOT EXISTS feedback_to_send (
+  feedback_key BYTEA NOT NULL,
+  routing_token BYTEA NOT NULL,
+  type integer NOT NULL, -- 1 = token deleted
+  reason VARCHAR(64),
+  created_at TIMESTAMP NOT NULL
 );

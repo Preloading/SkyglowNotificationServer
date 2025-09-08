@@ -9,9 +9,7 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 //go:embed init.sql
@@ -44,13 +42,14 @@ type QueuedMessage struct {
 }
 
 type NotificationToken struct {
-	RoutingToken     []byte
-	DeviceAddress    string
-	NotificationType int    // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
-	AppBundleId      string // example: com.atebits.tweetie2
-	IssuedAt         time.Time
-	IsValid          bool // Unsure if this should be kept
-	LastUsed         *time.Time
+	RoutingToken       []byte
+	DeviceAddress      string
+	NotificationType   int    // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
+	AppBundleId        string // example: com.atebits.tweetie2
+	IssuedAt           time.Time
+	IsValid            bool // Unsure if this should be kept
+	MarkedForRemovalAt *time.Time
+	LastUsed           *time.Time
 }
 
 type Device struct {
@@ -199,4 +198,12 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 	}
 
 	return messages, nil
+}
+
+// / Feedback
+func SaveNewFeedbackForToken(routingToken []byte, feedbackSecret []byte) error {
+	_, err := db.Exec("INSERT INTO feedback_token (feedback_key, routing_token, last_used) VALUES ($1, $2, $3)",
+		routingToken, feedbackSecret, time.Now(),
+	)
+	return err
 }

@@ -318,6 +318,8 @@ func handleConnection(c net.Conn) {
 						sendMessageToClient(c, nil, 4)
 						return
 					}
+				case 6: // token removed
+
 				default:
 					log.Printf("An invalid authenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
 					sendMessageToClient(c, nil, 4)
