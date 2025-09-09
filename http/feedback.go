@@ -8,9 +8,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type RequestFeedbackReqBody struct {
-	After       time.Time `json:"after"`
-	FeedbackKey []byte    `json:"feedback_key"`
+type RequestFeedbackResBodyContents struct {
+	RoutingToken []byte    `json:"routing_token"`
+	Type         int       `json:"type"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type RegisterForFeedbackReqBody struct {
@@ -57,26 +59,52 @@ func RegisterForFeedback(c *fiber.Ctx) error {
 	})
 }
 
-// func RequestFeedback(c *fiber.Ctx) error {
-// 	var data RequestFeedbackReqBody
-// 	if err := c.BodyParser(&data); err != nil {
-// 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-// 			"status": err.Error(),
-// 		})
-// 	}
+func RequestFeedback(c *fiber.Ctx) error {
+	if c.Query("feedback_key") == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status": "missing feedback key",
+		})
+	}
 
-// 	// 1. Get feedback data with the specific feedback key after a date
+	feedbackKey, err := hex.DecodeString(c.Query("feedback_key"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status": "missing feedback key",
+		})
+	}
 
-// 	// 2.
+	var after *time.Time
+	if c.Query("after") != "" {
+		afterPtr, err := time.Parse(time.RFC3339, c.Query("after"))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status": "after time invalid",
+			})
+		}
+		after = &afterPtr
+	}
 
-// 	// err := router.SendMessageToRouter(data)
+	// 1. Get feedback data with the specific feedback key after a date
+	feedbackToSendRaw, err := db.GetFeedbackWithSecret(feedbackKey, after)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status": err.Error(),
+		})
+	}
 
-// 	// if err != nil {
-// 	// 	return c.SendString(err.Error())
-// 	// }
+	feedbackToSend := make([]RequestFeedbackResBodyContents, len(feedbackToSendRaw))
+	for i := range feedbackToSendRaw {
+		feedbackToSend[i] = RequestFeedbackResBodyContents{
+			RoutingToken: feedbackToSendRaw[i].RoutingToken,
+			Type:         feedbackToSendRaw[i].Type,
+			Reason:       feedbackToSendRaw[i].Reason,
+			CreatedAt:    feedbackToSendRaw[i].CreatedAt,
+		}
+	}
 
-// 	// return c.JSON(fiber.Map{
-// 	// 	"status": "sucess",
-// 	// 	"data":   data,
-// 	// })
-// }
+	// 2. send that data off!
+	return c.JSON(fiber.Map{
+		"status": "sucess",
+		"data":   feedbackToSend,
+	})
+}

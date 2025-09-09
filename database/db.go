@@ -58,6 +58,14 @@ type Device struct {
 	Language      string
 }
 
+type FeedbackToSend struct {
+	FeedbackKey  []byte
+	RoutingToken []byte
+	Type         int
+	Reason       string
+	CreatedAt    time.Time
+}
+
 func ResetDatabase() error {
 	_, err := db.Exec(initDbSQL)
 	return err
@@ -200,10 +208,44 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 	return messages, nil
 }
 
-// / Feedback
+// Feedback
 func SaveNewFeedbackForToken(routingToken []byte, feedbackSecret []byte) error {
 	_, err := db.Exec("INSERT INTO feedback_token (feedback_key, routing_token, last_used) VALUES ($1, $2, $3)",
 		routingToken, feedbackSecret, time.Now(),
 	)
 	return err
+}
+
+func GetFeedbackWithSecret(feedbackSecret []byte, after *time.Time) ([]FeedbackToSend, error) {
+	var feedbackToSend []FeedbackToSend
+
+	latestTime := time.Now().Add(2 * time.Hour)
+	if after == nil {
+		after = &latestTime
+	} else if after.Before(latestTime) {
+		after = &latestTime
+	}
+
+	rows, err := db.Query("SELECT * FROM feedback_to_send WHERE feedback_key = $1 AND created_at >= $2", feedbackSecret, after)
+	if err != nil {
+		return feedbackToSend, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var f FeedbackToSend
+		if err := rows.Scan(
+			&f.FeedbackKey, &f.RoutingToken, &f.Type, &f.Reason, &f.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		feedbackToSend = append(feedbackToSend, f)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return feedbackToSend, nil
 }

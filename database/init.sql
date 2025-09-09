@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
 CREATE TABLE IF NOT EXISTS feedback_token (
   feedback_key BYTEA NOT NULL,
   routing_token BYTEA NOT NULL,
+  routing_domain VARCHAR(64) NOT NULL,
   last_used TIMESTAMP NOT NULL,
   PRIMARY KEY ("routing_token")
 );

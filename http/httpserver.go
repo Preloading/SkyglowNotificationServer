@@ -40,6 +40,8 @@ func CreateHTTPServer(_keys configPkg.CryptoKeys, _config configPkg.Config) {
 
 	// Device specific
 	app.Post("/snd/register_device", CreateUser)
+	app.Get("/get_feedback", RequestFeedback)
+	app.Post("/register_token_for_feedback", RegisterForFeedback)
 
 	app.Listen(":7878")
 }
