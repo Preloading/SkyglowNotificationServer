@@ -40,8 +40,12 @@ func CreateHTTPServer(_keys configPkg.CryptoKeys, _config configPkg.Config) {
 
 	// Device specific
 	app.Post("/snd/register_device", CreateUser)
-	app.Get("/get_feedback", RequestFeedback)
-	app.Post("/register_token_for_feedback", RegisterForFeedback)
+
+	// feedback
+	app.Get("/get_feedback", GetFeedback)                                     // service calls this
+	app.Post("/register_token_for_feedback", RegisterForFeedback)             // service calls this
+	app.Post("/set_feedback_provider_for_token", SetFeedbackProviderForToken) // server calls this to another server, sends domain.
+	app.Post("/relay_feedback", RelayedFeedback)                              // sends feedback from a server to another server.
 
 	app.Listen(":7878")
 }

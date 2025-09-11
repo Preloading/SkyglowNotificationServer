@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS notification_tokens (
   routing_token BYTEA NOT NULL,
   device_address VARCHAR(64) NOT NULL,
+  feedback_provider VARCHAR(16),
   allowed_notification_types integer NOT NULL,
   bundle_id VARCHAR(64) NOT NULL,
   issued_at TIMESTAMP NOT NULL,
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
 CREATE TABLE IF NOT EXISTS feedback_token (
   feedback_key BYTEA NOT NULL,
   routing_token BYTEA NOT NULL,
-  routing_domain VARCHAR(64) NOT NULL,
+  routing_domain VARCHAR(16) NOT NULL,
   last_used TIMESTAMP NOT NULL,
   PRIMARY KEY ("routing_token")
 );
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS feedback_token (
 CREATE TABLE IF NOT EXISTS feedback_to_send (
   feedback_key BYTEA NOT NULL,
   routing_token BYTEA NOT NULL,
+  server_address VARCHAR(16) NOT NULL,
   type integer NOT NULL, -- 1 = token deleted
   reason VARCHAR(64),
   created_at TIMESTAMP NOT NULL

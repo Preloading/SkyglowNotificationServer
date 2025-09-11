@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -42,14 +43,15 @@ type QueuedMessage struct {
 }
 
 type NotificationToken struct {
-	RoutingToken       []byte
-	DeviceAddress      string
-	NotificationType   int    // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
-	AppBundleId        string // example: com.atebits.tweetie2
-	IssuedAt           time.Time
-	IsValid            bool // Unsure if this should be kept
-	MarkedForRemovalAt *time.Time
-	LastUsed           *time.Time
+	RoutingToken            []byte
+	DeviceAddress           string
+	FeedbackProviderAddress string
+	NotificationType        int    // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
+	AppBundleId             string // example: com.atebits.tweetie2
+	IssuedAt                time.Time
+	IsValid                 bool // Unsure if this should be kept
+	MarkedForRemovalAt      *time.Time
+	LastUsed                *time.Time
 }
 
 type Device struct {
@@ -173,7 +175,7 @@ func GetToken(routing_token []byte) (*NotificationToken, error) {
 
 	row := db.QueryRow("SELECT * FROM notification_tokens WHERE routing_token = $1", routing_token)
 
-	if err := row.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed); err != nil {
+	if err := row.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.FeedbackProviderAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed); err != nil {
 		return nil, err
 	}
 	return &notificationToken, nil
@@ -209,9 +211,13 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 }
 
 // Feedback
-func SaveNewFeedbackForToken(routingToken []byte, feedbackSecret []byte) error {
-	_, err := db.Exec("INSERT INTO feedback_token (feedback_key, routing_token, last_used) VALUES ($1, $2, $3)",
-		routingToken, feedbackSecret, time.Now(),
+func SaveNewFeedbackToken(routingToken []byte, server_address string, feedbackSecret []byte) error {
+	if len(server_address) > 16 {
+		return errors.New("server address too big")
+	}
+
+	_, err := db.Exec("INSERT INTO feedback_token (feedback_key, routing_token, routing_domain, last_used) VALUES ($1, $2, $3, $4)",
+		routingToken, routingToken, feedbackSecret, time.Now(),
 	)
 	return err
 }
@@ -248,4 +254,37 @@ func GetFeedbackWithSecret(feedbackSecret []byte, after *time.Time) ([]FeedbackT
 	}
 
 	return feedbackToSend, nil
+}
+
+func GetTokenFeedbackKey(routing_token []byte, serverAddress string) (*[]byte, error) {
+	var feedback_key []byte
+
+	row := db.QueryRow("SELECT feedback_key FROM feedback_token WHERE routing_token = $1 AND server_address = $2", routing_token, serverAddress)
+
+	if err := row.Scan(feedback_key); err != nil {
+		return nil, err
+	}
+	return &feedback_key, nil
+}
+
+func AddFeedback(routingToken []byte, feedbackSecret []byte, serverAddress string, typeOfFeedback int, reason string) error {
+	if len(reason) > 64 {
+		return errors.New("reason too big")
+	}
+	_, err := db.Exec("INSERT INTO feedback_to_send (feedback_key, routing_token, type, reason, created_at) VALUES ($1, $2, $3, $4, $5)",
+		feedbackSecret, routingToken, typeOfFeedback, reason, time.Now(),
+	)
+
+	return err
+}
+
+func SetTokenFeedbackProviderAddress(routingToken []byte, feedbackServer string) error {
+	if len(feedbackServer) > 16 {
+		return errors.New("feedback server address too big")
+	}
+	_, err := db.Exec("UPDATE notification_tokens SET feedback_provider = $1 WHERE routing_token = $2 AND feedback_provider IS NULL",
+		feedbackServer, routingToken,
+	)
+
+	return err
 }
