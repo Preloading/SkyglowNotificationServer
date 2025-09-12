@@ -45,7 +45,7 @@ type QueuedMessage struct {
 type NotificationToken struct {
 	RoutingToken            []byte
 	DeviceAddress           string
-	FeedbackProviderAddress string
+	FeedbackProviderAddress *string
 	NotificationType        int    // Notifcation types, I'm not sure of the order yet but None, Badge, Sound, Alert
 	AppBundleId             string // example: com.atebits.tweetie2
 	IssuedAt                time.Time

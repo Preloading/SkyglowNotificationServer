@@ -1,16 +1,19 @@
 package tcpproto
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"strconv"
 	"time"
@@ -319,6 +322,78 @@ func handleConnection(c net.Conn) {
 						return
 					}
 				case 6: // token removed
+					routingToken, ok := message["deviceTokenChecksum"].([]byte)
+					if !ok {
+						sendMessageToClient(c, nil, 4)
+						return
+					}
+
+					typeOfFeedback, ok := message["type"].(int)
+					if !ok {
+						sendMessageToClient(c, nil, 4)
+						return
+					}
+					reasonForFeedback, ok := message["reason"].(string)
+					if !ok {
+						sendMessageToClient(c, nil, 4)
+						return
+					}
+
+					token, err := db.GetToken(routingToken)
+					if err != nil {
+						if token.FeedbackProviderAddress != nil {
+							if token.DeviceAddress != device.DeviceAddress {
+								sendMessageToClient(c, nil, 4)
+								return
+							}
+							if token.FeedbackProviderAddress == &configData.ServerAddress {
+								feedbackKey, err := db.GetTokenFeedbackKey(routingToken, configData.ServerAddress)
+								if err != nil || feedbackKey == nil {
+									continue
+								}
+								db.AddFeedback(routingToken, *feedbackKey, configData.ServerAddress, typeOfFeedback, reasonForFeedback)
+
+							} else {
+								type RelayFeedback struct {
+									DeviceTokenStr string `json:"device_token"`
+									ServerAddress  string `json:"server_address"`
+									Type           int    `json:"type"`
+									Reason         string `json:"reason"`
+								}
+
+								deviceTokenStr := hex.EncodeToString(routingToken)
+
+								setTokenFeedbackProviderJson, err := json.Marshal(RelayFeedback{
+									DeviceTokenStr: deviceTokenStr,
+									ServerAddress:  configData.ServerAddress,
+									Type:           typeOfFeedback,
+									Reason:         reasonForFeedback,
+								})
+								if err != nil {
+									sendMessageToClient(c, nil, 4)
+									return
+								}
+
+								txts, err := net.LookupTXT(fmt.Sprintf("_sgn.%s", *token.FeedbackProviderAddress))
+								if err != nil {
+									continue
+								}
+								var serverData router.ServerTXT
+
+								found := false
+								for _, txt := range txts {
+									serverData, err = router.ParseServerTXT(txt)
+									if err == nil {
+										found = true
+										break
+									}
+								}
+								if found {
+									http.Post(fmt.Sprintf("%s/relay_feedback", serverData.HTTPAddress), "application/json", bytes.NewBuffer(setTokenFeedbackProviderJson))
+								}
+							}
+						}
+					}
 
 				default:
 					log.Printf("An invalid authenticated message type was sent from %s: %v\n", c.RemoteAddr().String(), typeVal)
