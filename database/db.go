@@ -197,7 +197,7 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 		var message QueuedMessage
 		var data []byte
 		if err := rows.Scan(&message.CreatedAt,
-			&message.IsEncrypted, data, // Unencrypted info
+			&message.IsEncrypted, &data, // Unencrypted info
 			&message.Ciphertext, &message.DataType, &message.IV, // Encrypted info
 			&message.DeviceAddress, &message.RoutingKey, &message.MessageId, // Routing info
 		); err != nil {
