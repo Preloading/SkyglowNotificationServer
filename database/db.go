@@ -175,7 +175,7 @@ func GetToken(routing_token []byte) (*NotificationToken, error) {
 
 	row := db.QueryRow("SELECT * FROM notification_tokens WHERE routing_token = $1", routing_token)
 
-	if err := row.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.FeedbackProviderAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed); err != nil {
+	if err := row.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.FeedbackProviderAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed, &notificationToken.MarkedForRemovalAt); err != nil {
 		return nil, err
 	}
 	return &notificationToken, nil

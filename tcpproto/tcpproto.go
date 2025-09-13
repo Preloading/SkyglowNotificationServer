@@ -41,6 +41,7 @@ type LoginChallenge struct {
 type AckDeviceToken struct {
 	Message
 	RoutingToken []byte `plist:"routingToken"`
+	BundleId     string `plist:"bundleId"`
 }
 
 type Notification struct {
@@ -311,12 +312,14 @@ func handleConnection(c net.Conn) {
 					}
 
 					db.SaveNewToken(userAddress, routingId, bundleId, 0b111)
-					hexRouting := hex.EncodeToString(routingId)
 
+					hexRouting := hex.EncodeToString(routingId)
 					log.Printf("Saved a new token. Token checksum %s", hexRouting)
+
 					if err := sendMessageToClient(c, AckDeviceToken{
 						Message:      Message{Type: 5},
 						RoutingToken: routingId,
+						BundleId:     bundleId,
 					}, 5); err != nil {
 						sendMessageToClient(c, nil, 4)
 						return
