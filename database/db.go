@@ -11,6 +11,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"howett.net/plist"
 )
 
 //go:embed init.sql
@@ -26,11 +27,7 @@ type QueuedMessage struct {
 	IsEncrypted bool `json:"is_encrypted,omitempty" plist:"is_encrypted"`
 
 	// Unencrypted message data
-	AlertBody   *string `json:"message,omitempty" plist:"message"`
-	AlertAction *string `json:"alert_action,omitempty" plist:"alert_action"`
-	AlertSound  *string `json:"alert_sound,omitempty" plist:"alert_sound"`
-	BadgeNumber *int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
-	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+	Data map[string]interface{} `json:"data" plist:"data"`
 
 	// Encrypted message data
 	Ciphertext *[]byte `json:"ciphertext" plist:"ciphertext"`
@@ -103,16 +100,21 @@ func AckMessage(message_id string, device_uuid string) error {
 func QueueEncryptedMessage(m QueuedMessage) error {
 	db.Exec("DELETE FROM queued_messages WHERE routing_key = $1", m.RoutingKey) // clean out old msgs.
 	_, err := db.Exec("INSERT INTO queued_messages (message_id, created_at, is_encrypted, ciphertext, data_type, iv, device_address, routing_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-		m.MessageId, m.CreatedAt, m.IsEncrypted, *m.Ciphertext, *m.DataType, *m.IV, m.DeviceAddress, m.RoutingKey,
+		m.MessageId, m.CreatedAt, true, *m.Ciphertext, *m.DataType, *m.IV, m.DeviceAddress, m.RoutingKey,
 	)
 
 	return err
 }
 
 func QueueUnencryptedMessage(m QueuedMessage) error {
+	out, err := plist.Marshal(m.Data, plist.BinaryFormat)
+	if err != nil {
+		return err
+	}
+
 	db.Exec("DELETE FROM queued_messages WHERE routing_key = $1", m.RoutingKey) // clean out old msgs.
-	_, err := db.Exec("INSERT INTO queued_messages (message_id, created_at, is_encrypted, alert_body, alert_action, alert_sound, badge_number, device_address, routing_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-		m.MessageId, m.CreatedAt, m.IsEncrypted, *m.AlertBody, *m.AlertAction, *m.AlertSound, *m.BadgeNumber, m.DeviceAddress, m.RoutingKey,
+	_, err = db.Exec("INSERT INTO queued_messages (message_id, created_at, is_encrypted, data, device_address, routing_key) VALUES ($1, $2, $3, $4, $5, $6)",
+		m.MessageId, m.CreatedAt, false, out, m.DeviceAddress, m.RoutingKey,
 	)
 
 	return err
@@ -193,13 +195,22 @@ func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 
 	for rows.Next() {
 		var message QueuedMessage
+		var data []byte
 		if err := rows.Scan(&message.CreatedAt,
-			&message.IsEncrypted, &message.AlertBody, &message.AlertAction, &message.AlertSound, &message.BadgeNumber, // Unencrypted info
+			&message.IsEncrypted, data, // Unencrypted info
 			&message.Ciphertext, &message.DataType, &message.IV, // Encrypted info
 			&message.DeviceAddress, &message.RoutingKey, &message.MessageId, // Routing info
 		); err != nil {
 			return nil, err
 		}
+
+		if !message.IsEncrypted {
+			if _, err := plist.Unmarshal(data, &message.Data); err != nil {
+				return nil, err
+			}
+
+		}
+
 		messages = append(messages, message)
 	}
 

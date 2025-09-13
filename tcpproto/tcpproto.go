@@ -272,10 +272,7 @@ func handleConnection(c net.Conn) {
 							sendNotificationToClient(c, router.DataToSend{
 								IsEncrypted: unackedNotification.IsEncrypted,
 
-								AlertBody:   *unackedNotification.AlertBody,
-								AlertSound:  *unackedNotification.AlertSound,
-								AlertAction: *unackedNotification.AlertAction,
-								BadgeNumber: *unackedNotification.BadgeNumber,
+								Data: unackedNotification.Data,
 
 								DeviceAddress: unackedNotification.DeviceAddress,
 								RoutingKey:    unackedNotification.RoutingKey,

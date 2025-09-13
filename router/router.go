@@ -22,11 +22,7 @@ type DataToSend struct {
 	IsEncrypted bool `json:"is_encrypted,omitempty" plist:"is_encrypted"`
 
 	// Unencrypted message data
-	AlertBody   string `json:"message,omitempty" plist:"message"`
-	AlertAction string `json:"alert_action,omitempty" plist:"alert_action"` // Default to Open
-	AlertSound  string `json:"alert_sound,omitempty" plist:"alert_sound"`   // Default to UILocalNotificationDefaultSoundName
-	BadgeNumber int    `json:"badge_number,omitempty" plist:"badge_number,omitempty"`
-	// UserInfo      *interface{} `json:"user_info,omitempty" plist:"user_info"`       // https://developer.apple.com/documentation/uikit/uilocalnotification/userinfo?language=objc
+	Data map[string]interface{} `json:"data" plist:"data"`
 
 	// Encrypted message data
 	Ciphertext []byte `json:"ciphertext" plist:"ciphertext"`
@@ -120,10 +116,6 @@ func SendMessageToRouter(msg DataToSend) error {
 func SendMessageToLocalRouter(msg DataToSend) error {
 	msg.MessageId = uuid.New().String()
 
-	if msg.AlertSound == "default" {
-		msg.AlertSound = "UILocalNotificationDefaultSoundName" // I checked, and it does UILocalNotificationDefaultSoundName is set to UILocalNotificationDefaultSoundName
-	}
-
 	// decode routing key hex
 	routingKey, err := hex.DecodeString(msg.RoutingKeyStr)
 	if err != nil {
@@ -180,10 +172,7 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 
 			IsEncrypted: false,
 
-			AlertBody:   &msg.AlertBody,
-			AlertAction: &msg.AlertAction,
-			AlertSound:  &msg.AlertSound,
-			BadgeNumber: &msg.BadgeNumber,
+			Data: msg.Data,
 
 			RoutingKey:    routingKey,
 			DeviceAddress: msg.DeviceAddress,

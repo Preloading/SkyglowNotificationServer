@@ -4,10 +4,7 @@ CREATE TABLE IF NOT EXISTS queued_messages (
   is_encrypted BOOLEAN NOT NULL,
 
   -- unencrypted msg data
-  alert_body VARCHAR(255),
-  alert_action VARCHAR(255),
-  alert_sound VARCHAR(255),
-  badge_number integer,
+  data BYTEA, -- in plist
 
   -- encrypted message data
   ciphertext BYTEA,
