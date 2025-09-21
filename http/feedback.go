@@ -16,32 +16,33 @@ import (
 )
 
 type RequestFeedbackResBodyContents struct {
-	RoutingToken []byte    `json:"routing_token"`
-	Type         int       `json:"type"`
-	Reason       string    `json:"reason"`
-	CreatedAt    time.Time `json:"created_at"`
+	RoutingToken  string    `json:"routing_token"`
+	ServerAddress string    `json:"server_address"`
+	Type          int       `json:"type"`
+	Reason        string    `json:"reason"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type RegisterForFeedbackReqBody struct {
 	FeedbackKeyStr string `json:"feedback_key"`
 	FeedbackKey    []byte `json:"-"`
-	DeviceTokenStr string `json:"device_token"`
-	DeviceToken    []byte `json:"-"`
+	RoutingKeyStr  string `json:"routing_key"`
+	RoutingKey     []byte `json:"-"`
 	ServerAddress  string `json:"server_address"`
 }
 
 type SetFeedbackProviderForTokenReqBody struct {
 	ProviderDomain string `json:"provider_domain"`
-	DeviceTokenStr string `json:"device_token"`
-	DeviceToken    []byte `json:"-"`
+	RoutingKeyStr  string `json:"routing_key"`
+	RoutingKey     []byte `json:"-"`
 }
 
 type RelayFeedback struct {
-	DeviceTokenStr string `json:"device_token"`
-	DeviceToken    []byte `json:"-"`
-	ServerAddress  string `json:"server_address"`
-	Type           int    `json:"type"`
-	Reason         string `json:"reason"`
+	RoutingKeyStr string `json:"routing_key"`
+	RoutingKey    []byte `json:"-"`
+	ServerAddress string `json:"server_address"`
+	Type          int    `json:"type"`
+	Reason        string `json:"reason"`
 }
 
 func RegisterForFeedback(c *fiber.Ctx) error {
@@ -54,7 +55,7 @@ func RegisterForFeedback(c *fiber.Ctx) error {
 	}
 
 	// decode the hex
-	data.DeviceToken, err = hex.DecodeString(data.DeviceTokenStr)
+	data.RoutingKey, err = hex.DecodeString(data.RoutingKeyStr)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": err.Error(),
@@ -68,8 +69,14 @@ func RegisterForFeedback(c *fiber.Ctx) error {
 		})
 	}
 
+	if len(data.FeedbackKey) > 257 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status": "feedback key too long (key > 257)",
+		})
+	}
+
 	// store data into DB
-	err = db.SaveNewFeedbackToken(data.DeviceToken, data.ServerAddress, data.FeedbackKey)
+	err = db.SaveNewFeedbackToken(data.RoutingKey, data.ServerAddress, data.FeedbackKey)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": "failed to store item in db, (already exists?)",
@@ -77,7 +84,7 @@ func RegisterForFeedback(c *fiber.Ctx) error {
 	}
 
 	if Config.ServerAddress == data.ServerAddress {
-		if err := db.SetTokenFeedbackProviderAddress(data.DeviceToken, Config.ServerAddress); err != nil {
+		if err := db.SetTokenFeedbackProviderAddress(data.RoutingKey, Config.ServerAddress); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"status": err.Error(),
 			})
@@ -85,7 +92,7 @@ func RegisterForFeedback(c *fiber.Ctx) error {
 	} else {
 		setTokenFeedbackProviderJson, err := json.Marshal(SetFeedbackProviderForTokenReqBody{
 			ProviderDomain: Config.ServerAddress,
-			DeviceTokenStr: data.DeviceTokenStr,
+			RoutingKeyStr:  data.RoutingKeyStr,
 		})
 		if err != nil {
 			return err
@@ -144,14 +151,14 @@ func SetFeedbackProviderForToken(c *fiber.Ctx) error {
 	}
 
 	// decode the hex device token
-	data.DeviceToken, err = hex.DecodeString(data.DeviceTokenStr)
+	data.RoutingKey, err = hex.DecodeString(data.RoutingKeyStr)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": err.Error(),
 		})
 	}
 
-	if err := db.SetTokenFeedbackProviderAddress(data.DeviceToken, data.ProviderDomain); err != nil {
+	if err := db.SetTokenFeedbackProviderAddress(data.RoutingKey, data.ProviderDomain); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": err.Error(),
 		})
@@ -177,6 +184,8 @@ func GetFeedback(c *fiber.Ctx) error {
 		})
 	}
 
+	fmt.Println(c.Query("after"))
+
 	var after *time.Time
 	if c.Query("after") != "" {
 		afterPtr, err := time.Parse(time.RFC3339, c.Query("after"))
@@ -198,11 +207,13 @@ func GetFeedback(c *fiber.Ctx) error {
 
 	feedbackToSend := make([]RequestFeedbackResBodyContents, len(feedbackToSendRaw))
 	for i := range feedbackToSendRaw {
+		routingToken := hex.EncodeToString(feedbackToSendRaw[i].RoutingToken)
 		feedbackToSend[i] = RequestFeedbackResBodyContents{
-			RoutingToken: feedbackToSendRaw[i].RoutingToken,
-			Type:         feedbackToSendRaw[i].Type,
-			Reason:       feedbackToSendRaw[i].Reason,
-			CreatedAt:    feedbackToSendRaw[i].CreatedAt,
+			RoutingToken:  routingToken,
+			ServerAddress: feedbackToSendRaw[i].ServerAddress,
+			Type:          feedbackToSendRaw[i].Type,
+			Reason:        feedbackToSendRaw[i].Reason,
+			CreatedAt:     feedbackToSendRaw[i].CreatedAt,
 		}
 	}
 
@@ -224,14 +235,14 @@ func RelayedFeedback(c *fiber.Ctx) error {
 	}
 
 	// decode the hex device token
-	data.DeviceToken, err = hex.DecodeString(data.DeviceTokenStr)
+	data.RoutingKey, err = hex.DecodeString(data.RoutingKeyStr)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": err.Error(),
 		})
 	}
 
-	feedbackKey, err := db.GetTokenFeedbackKey(data.DeviceToken, data.ServerAddress)
+	feedbackKey, err := db.GetTokenFeedbackKey(data.RoutingKey, data.ServerAddress)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": "could not find token (is registered for feedback?)",
@@ -244,7 +255,7 @@ func RelayedFeedback(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := db.AddFeedback(data.DeviceToken, *feedbackKey, data.ServerAddress, data.Type, data.Reason); err != nil {
+	if err := db.AddFeedback(data.RoutingKey, *feedbackKey, data.ServerAddress, data.Type, data.Reason); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status": err.Error(),
 		})

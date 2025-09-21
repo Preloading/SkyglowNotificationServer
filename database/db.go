@@ -58,11 +58,12 @@ type Device struct {
 }
 
 type FeedbackToSend struct {
-	FeedbackKey  []byte
-	RoutingToken []byte
-	Type         int
-	Reason       string
-	CreatedAt    time.Time
+	FeedbackKey   []byte
+	RoutingToken  []byte
+	ServerAddress string
+	Type          int
+	Reason        string
+	CreatedAt     time.Time
 }
 
 func ResetDatabase() error {
@@ -143,7 +144,7 @@ func SaveNewToken(device_address string, routingToken []byte, bundleId string, n
 	_, err := db.Exec("INSERT INTO notification_tokens (device_address, bundle_id, routing_token, allowed_notification_types, is_valid, issued_at) VALUES ($1, $2, $3, $4, $5, $6)",
 		device_address, bundleId, routingToken, notificationType, true, time.Now(),
 	)
-	fmt.Println(err)
+
 	return err
 }
 
@@ -228,15 +229,16 @@ func SaveNewFeedbackToken(routingToken []byte, server_address string, feedbackSe
 	}
 
 	_, err := db.Exec("INSERT INTO feedback_token (feedback_key, routing_token, routing_domain, last_used) VALUES ($1, $2, $3, $4)",
-		routingToken, routingToken, feedbackSecret, time.Now(),
+		feedbackSecret, routingToken, server_address, time.Now(),
 	)
+
 	return err
 }
 
 func GetFeedbackWithSecret(feedbackSecret []byte, after *time.Time) ([]FeedbackToSend, error) {
 	var feedbackToSend []FeedbackToSend
 
-	latestTime := time.Now().Add(2 * time.Hour)
+	latestTime := time.Now().Add(-2 * time.Hour)
 	if after == nil {
 		after = &latestTime
 	} else if after.Before(latestTime) {
@@ -244,6 +246,35 @@ func GetFeedbackWithSecret(feedbackSecret []byte, after *time.Time) ([]FeedbackT
 	}
 
 	rows, err := db.Query("SELECT * FROM feedback_to_send WHERE feedback_key = $1 AND created_at >= $2", feedbackSecret, after)
+	if err != nil {
+		return feedbackToSend, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var f FeedbackToSend
+		if err := rows.Scan(
+			&f.FeedbackKey, &f.RoutingToken, &f.ServerAddress, &f.Type, &f.Reason, &f.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		feedbackToSend = append(feedbackToSend, f)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return feedbackToSend, nil
+}
+
+func GetAllFeedback() ([]FeedbackToSend, error) {
+	var feedbackToSend []FeedbackToSend
+
+	after := time.Now().Add(2 * time.Hour)
+
+	rows, err := db.Query("SELECT * FROM feedback_to_send WHERE created_at < $1", after)
 	if err != nil {
 		return feedbackToSend, err
 	}
@@ -270,11 +301,12 @@ func GetFeedbackWithSecret(feedbackSecret []byte, after *time.Time) ([]FeedbackT
 func GetTokenFeedbackKey(routing_token []byte, serverAddress string) (*[]byte, error) {
 	var feedback_key []byte
 
-	row := db.QueryRow("SELECT feedback_key FROM feedback_token WHERE routing_token = $1 AND server_address = $2", routing_token, serverAddress)
+	row := db.QueryRow("SELECT feedback_key FROM feedback_token WHERE routing_token = $1 AND routing_domain = $2", routing_token, serverAddress)
 
-	if err := row.Scan(feedback_key); err != nil {
+	if err := row.Scan(&feedback_key); err != nil {
 		return nil, err
 	}
+
 	return &feedback_key, nil
 }
 
@@ -282,8 +314,8 @@ func AddFeedback(routingToken []byte, feedbackSecret []byte, serverAddress strin
 	if len(reason) > 64 {
 		return errors.New("reason too big")
 	}
-	_, err := db.Exec("INSERT INTO feedback_to_send (feedback_key, routing_token, type, reason, created_at) VALUES ($1, $2, $3, $4, $5)",
-		feedbackSecret, routingToken, typeOfFeedback, reason, time.Now(),
+	_, err := db.Exec("INSERT INTO feedback_to_send (feedback_key, routing_token, server_address, type, reason, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+		feedbackSecret, routingToken, serverAddress, typeOfFeedback, reason, time.Now(),
 	)
 
 	return err
@@ -298,4 +330,42 @@ func SetTokenFeedbackProviderAddress(routingToken []byte, feedbackServer string)
 	)
 
 	return err
+}
+
+func KillThatToken(routingToken []byte) error {
+	_, err := db.Exec("UPDATE notification_tokens SET is_valid = false WHERE routing_token = $1",
+		routingToken,
+	)
+	return err
+}
+
+func RemoveDeviceToken(routingToken []byte, serverAddress string, isOurToken bool) error {
+	if isOurToken {
+		// clean up the actual token
+		if _, err := db.Exec("DELETE notification_tokens WHERE routing_token = $1",
+			routingToken,
+		); err != nil {
+			return nil
+		}
+
+		if _, err := db.Exec("DELETE queued_messages WHERE routing_token = $1",
+			routingToken,
+		); err != nil {
+			return nil
+		}
+	}
+
+	if _, err := db.Exec("DELETE feedback_to_send WHERE routing_token = $1 AND server_address = $2",
+		routingToken, serverAddress,
+	); err != nil {
+		return nil
+	}
+
+	if _, err := db.Exec("DELETE feedback_token WHERE routing_token = $1 AND routing_domain = $2",
+		routingToken, serverAddress,
+	); err != nil {
+		return nil
+	}
+
+	return nil
 }

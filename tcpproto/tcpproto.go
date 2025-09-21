@@ -20,6 +20,7 @@ import (
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
+	"github.com/Preloading/SkyglowNotificationServer/feedbackmgr"
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"howett.net/plist"
 )
@@ -322,13 +323,13 @@ func handleConnection(c net.Conn) {
 						return
 					}
 				case 6: // token removed
-					routingToken, ok := message["deviceTokenChecksum"].([]byte)
+					routingToken, ok := message["routing_token"].([]byte)
 					if !ok {
 						sendMessageToClient(c, nil, 4)
 						return
 					}
 
-					typeOfFeedback, ok := message["type"].(int)
+					typeOfFeedback, ok := message["type"].(uint64)
 					if !ok {
 						sendMessageToClient(c, nil, 4)
 						return
@@ -340,19 +341,16 @@ func handleConnection(c net.Conn) {
 					}
 
 					token, err := db.GetToken(routingToken)
-					if err != nil {
-						if token.FeedbackProviderAddress != nil {
-							if token.DeviceAddress != device.DeviceAddress {
-								sendMessageToClient(c, nil, 4)
-								return
-							}
-							if token.FeedbackProviderAddress == &configData.ServerAddress {
-								feedbackKey, err := db.GetTokenFeedbackKey(routingToken, configData.ServerAddress)
-								if err != nil || feedbackKey == nil {
-									continue
-								}
-								db.AddFeedback(routingToken, *feedbackKey, configData.ServerAddress, typeOfFeedback, reasonForFeedback)
+					if err == nil {
+						if token.DeviceAddress != device.DeviceAddress {
+							sendMessageToClient(c, nil, 4)
+							return
+						}
+						feedbackmgr.PreformInstantFeedbackActionsForOurToken(int(typeOfFeedback), reasonForFeedback, routingToken, configData.ServerAddress)
 
+						if token.FeedbackProviderAddress != nil {
+							if *token.FeedbackProviderAddress == configData.ServerAddress {
+								feedbackmgr.SaveFeedbackWhenProviderIsUs(int(typeOfFeedback), reasonForFeedback, routingToken, configData.ServerAddress)
 							} else {
 								type RelayFeedback struct {
 									DeviceTokenStr string `json:"device_token"`
@@ -366,7 +364,7 @@ func handleConnection(c net.Conn) {
 								setTokenFeedbackProviderJson, err := json.Marshal(RelayFeedback{
 									DeviceTokenStr: deviceTokenStr,
 									ServerAddress:  configData.ServerAddress,
-									Type:           typeOfFeedback,
+									Type:           int(typeOfFeedback),
 									Reason:         reasonForFeedback,
 								})
 								if err != nil {
