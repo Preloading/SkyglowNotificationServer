@@ -35,6 +35,6 @@ func main() {
 	go tcpproto.CreateTCPServer(uint16(c.TCPPort), *keys, c)
 	fmt.Println("Starting HTTP Server...")
 	go http.CreateHTTPServer(*keys, c)
-	go feedbackmgr.StartFeedbackCycle(c)
+	feedbackmgr.StartFeedbackCycle(c)
 	select {}
 }
