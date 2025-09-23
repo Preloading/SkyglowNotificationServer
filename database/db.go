@@ -332,36 +332,74 @@ func SetTokenFeedbackProviderAddress(routingToken []byte, feedbackServer string)
 	return err
 }
 
-func KillThatToken(routingToken []byte) error {
-	_, err := db.Exec("UPDATE notification_tokens SET is_valid = false WHERE routing_token = $1",
-		routingToken,
+func MarkTokenForRemoval(routingToken []byte) error {
+	_, err := db.Exec("UPDATE notification_tokens SET is_valid = false, marked_for_removal_at = $1  WHERE routing_token = $2",
+		time.Now(), routingToken,
 	)
 	return err
+}
+
+func HideTheTracksOfKilledTokens(ourServer string) error {
+	after := time.Now().Add(-2 * time.Hour)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT routing_token, feedback_provider FROM notification_tokens WHERE is_valid = false AND marked_for_removal_at <= $1", after)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		fmt.Println("hell")
+		var routingToken []byte
+		var feedbackProvider sql.NullString
+		if err := rows.Scan(&routingToken, &feedbackProvider); err != nil {
+			return err
+		}
+
+		fmt.Println(routingToken)
+
+		if err := RemoveDeviceToken(routingToken, ourServer, true); err != nil {
+			return err
+		}
+		fmt.Println("OwO")
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func RemoveDeviceToken(routingToken []byte, serverAddress string, isOurToken bool) error {
 	if isOurToken {
 		// clean up the actual token
-		if _, err := db.Exec("DELETE notification_tokens WHERE routing_token = $1",
+		if _, err := db.Exec("DELETE FROM notification_tokens WHERE routing_token = $1",
 			routingToken,
 		); err != nil {
 			return nil
 		}
 
-		if _, err := db.Exec("DELETE queued_messages WHERE routing_token = $1",
+		if _, err := db.Exec("DELETE FROM queued_messages WHERE routing_token = $1",
 			routingToken,
 		); err != nil {
 			return nil
 		}
 	}
 
-	if _, err := db.Exec("DELETE feedback_to_send WHERE routing_token = $1 AND server_address = $2",
+	if _, err := db.Exec("DELETE FROM feedback_to_send WHERE routing_token = $1 AND server_address = $2",
 		routingToken, serverAddress,
 	); err != nil {
 		return nil
 	}
 
-	if _, err := db.Exec("DELETE feedback_token WHERE routing_token = $1 AND routing_domain = $2",
+	if _, err := db.Exec("DELETE FROM feedback_token WHERE routing_token = $1 AND routing_domain = $2",
 		routingToken, serverAddress,
 	); err != nil {
 		return nil

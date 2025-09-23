@@ -6,6 +6,7 @@ import (
 
 	"github.com/Preloading/SkyglowNotificationServer/config"
 	db "github.com/Preloading/SkyglowNotificationServer/database"
+	"github.com/Preloading/SkyglowNotificationServer/feedbackmgr"
 	"github.com/Preloading/SkyglowNotificationServer/http"
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/Preloading/SkyglowNotificationServer/tcpproto"
@@ -34,5 +35,6 @@ func main() {
 	go tcpproto.CreateTCPServer(uint16(c.TCPPort), *keys, c)
 	fmt.Println("Starting HTTP Server...")
 	go http.CreateHTTPServer(*keys, c)
+	go feedbackmgr.StartFeedbackCycle(c)
 	select {}
 }

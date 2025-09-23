@@ -10,7 +10,7 @@ func PreformInstantFeedbackActionsForOurToken(typeOfFeedback int, reason string,
 	// now do a switch case you cunt
 	switch typeOfFeedback {
 	case 0:
-		db.KillThatToken(routing_token)
+		db.MarkTokenForRemoval(routing_token)
 	}
 }
 
