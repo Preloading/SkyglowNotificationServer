@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	configPkg "github.com/Preloading/SkyglowNotificationServer/config"
@@ -58,11 +59,15 @@ type ServerTXT struct {
 }
 
 var (
-	connections map[string]chan DataUpdate
-	Config      configPkg.Config
+	connections   map[string]chan DataUpdate
+	connectionsMu sync.RWMutex
+	Config        configPkg.Config
 )
 
 func AddConnection(deviceUUID string, messageChan chan DataUpdate) {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
+
 	if connections == nil {
 		connections = make(map[string]chan DataUpdate)
 	}
@@ -74,7 +79,11 @@ func AddConnection(deviceUUID string, messageChan chan DataUpdate) {
 	connections[deviceUUID] = messageChan
 }
 func DisconnectConnection(deviceUUID string) {
-	if ch, ok := connections[deviceUUID]; ok {
+	connectionsMu.RLock()
+	ch, ok := connections[deviceUUID]
+	connectionsMu.RUnlock()
+
+	if ok {
 		select {
 		case ch <- DataUpdate{Disconnect: true}:
 			// Message sent to connection
@@ -86,6 +95,9 @@ func DisconnectConnection(deviceUUID string) {
 }
 
 func RemoveConnection(deviceUUID string) {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
+
 	if connections == nil {
 		return
 	}
@@ -182,7 +194,11 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 		}
 	}
 
-	if ch, ok := connections[msg.DeviceAddress]; ok {
+	connectionsMu.RLock()
+	ch, ok := connections[msg.DeviceAddress]
+	connectionsMu.RUnlock()
+
+	if ok {
 		select {
 		case ch <- DataUpdate{DataToSend: msg, Disconnect: false}:
 			// Message sent to connection
