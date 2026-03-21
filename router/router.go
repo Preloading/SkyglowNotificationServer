@@ -65,18 +65,25 @@ var (
 )
 
 func AddConnection(deviceUUID string, messageChan chan DataUpdate) {
-	connectionsMu.Lock()
-	defer connectionsMu.Unlock()
+	var needRemove bool
 
+	connectionsMu.Lock()
 	if connections == nil {
 		connections = make(map[string]chan DataUpdate)
 	}
 	if _, ok := connections[deviceUUID]; ok {
+		needRemove = true
+	}
+	connectionsMu.Unlock()
+
+	if needRemove {
 		RemoveConnection(deviceUUID)
 		DisconnectConnection(deviceUUID)
 	}
 
+	connectionsMu.Lock()
 	connections[deviceUUID] = messageChan
+	connectionsMu.Unlock()
 }
 func DisconnectConnection(deviceUUID string) {
 	connectionsMu.RLock()
