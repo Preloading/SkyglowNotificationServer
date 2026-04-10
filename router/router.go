@@ -238,7 +238,7 @@ func RouteMessageToProperServer(msg DataToSend, server string) (*http.Response, 
 
 	relayMsg := msg
 	relayMsg.TotalHops = relayMsg.TotalHops + 1
-	if relayMsg.TotalHops > 10 {
+	if relayMsg.TotalHops > 10 || relayMsg.TotalHops < 0 {
 		return nil, errors.New("hop limit exceeded")
 	}
 
