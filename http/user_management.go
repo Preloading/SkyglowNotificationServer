@@ -11,39 +11,54 @@ import (
 	db "github.com/Preloading/SkyglowNotificationServer/database"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"howett.net/plist"
 )
 
 type DeviceRegisterRequest struct {
-	PubKey string `json:"pub_key"`
+	PubKey string `json:"pub_key" plist:"pub_key"`
 }
 
 type DeviceRegisterResponce struct {
-	Status        string `json:"status"`
-	DeviceAddress string `json:"device_address"`
-	ServerPubKey  string `json:"server_pub_key"`
+	Status        string `json:"status" plist:"status"`
+	DeviceAddress string `json:"device_address" plist:"device_address"`
+	ServerPubKey  string `json:"server_pub_key" plist:"server_pub_key"`
 }
 
 func CreateUser(c *fiber.Ctx) error {
 	var req DeviceRegisterRequest
+	var err error
 
-	if err := json.Unmarshal(c.Body(), &req); err != nil {
-		return c.Status(401).JSON(StatusOnly{Status: "malformed request"})
+	isPlist := false
+	format := 0
+	if c.Get("Content-Type") == "application/x-plist" || c.Get("Content-Type") == "application/xml" {
+		isPlist = true
+		if format, err = plist.Unmarshal(c.Body(), &req); err != nil {
+			return SendAsRequestType(c.Status(401), StatusOnly{Status: "malformed request"}, true, 0)
+		}
+	} else {
+		if err := json.Unmarshal(c.Body(), &req); err != nil {
+			return SendAsRequestType(c.Status(401), StatusOnly{Status: "malformed request"}, false, 0)
+		}
 	}
 
 	// parse pub key
 	block, _ := pem.Decode([]byte(req.PubKey))
 	if block == nil {
-		return c.Status(fiber.ErrBadRequest.Code).JSON(StatusOnly{Status: "invalid public key format"})
+		return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "invalid public key format"}, isPlist, format)
 	}
 
 	pubInterface, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return c.Status(fiber.ErrBadRequest.Code).JSON(StatusOnly{Status: "invalid public key"})
+		return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "invalid public key"}, isPlist, format)
 	}
 
 	clientPubKey, ok := pubInterface.(*rsa.PublicKey)
 	if !ok {
-		return c.Status(fiber.ErrBadRequest.Code).JSON(StatusOnly{Status: "not an RSA public key"})
+		if isPlist {
+
+		} else {
+			return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "not an RSA public key"}, isPlist, format)
+		}
 	}
 
 	// Generate the device address
@@ -53,10 +68,9 @@ func CreateUser(c *fiber.Ctx) error {
 	client_address := fmt.Sprintf("%s@%s", uuidWithoutHyphens, Config.ServerAddress)
 
 	db.SaveNewUser(client_address, *clientPubKey)
-
-	return c.JSON(DeviceRegisterResponce{
+	return SendAsRequestType(c, DeviceRegisterResponce{
 		Status:        "sucess",
 		DeviceAddress: client_address,
 		ServerPubKey:  *keys.ServerPublicKeyString,
-	})
+	}, isPlist, format)
 }

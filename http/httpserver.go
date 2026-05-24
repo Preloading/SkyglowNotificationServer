@@ -6,10 +6,11 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"howett.net/plist"
 )
 
 type StatusOnly struct {
-	Status string `json:"status"`
+	Status string `json:"status" plist:"status"`
 }
 
 var (
@@ -48,4 +49,21 @@ func CreateHTTPServer(_keys configPkg.CryptoKeys, _config configPkg.Config) {
 	app.Post("/relay_feedback", RelayedFeedback)                              // sends feedback from a server to another server.
 
 	app.Listen(":7878")
+}
+
+func SendAsRequestType(c *fiber.Ctx, v interface{}, isPlist bool, format int) error {
+	if isPlist {
+		return SendAsPlist(c, v, format)
+	} else {
+		return c.JSON(v)
+	}
+}
+
+func SendAsPlist(c *fiber.Ctx, v interface{}, format int) error {
+	plistData, err := plist.Marshal(v, format)
+
+	if err != nil {
+		return c.Status(fiber.ErrInternalServerError.Code).SendString("failed to encode the responce! report this as a bug")
+	}
+	return c.Send(plistData)
 }
