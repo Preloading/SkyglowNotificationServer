@@ -15,7 +15,8 @@ import (
 )
 
 type DeviceRegisterRequest struct {
-	PubKey string `json:"pub_key" plist:"pub_key"`
+	PubKey  string `json:"pub_key" plist:"pub_key"`
+	Version int    `json:"version" plist:"version"`
 }
 
 type DeviceRegisterResponce struct {
@@ -39,6 +40,10 @@ func CreateUser(c *fiber.Ctx) error {
 		if err := json.Unmarshal(c.Body(), &req); err != nil {
 			return SendAsRequestType(c.Status(401), StatusOnly{Status: "malformed request"}, false, 0)
 		}
+	}
+
+	if !(req.Version <= 2) {
+		return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "outdated client!"}, isPlist, format)
 	}
 
 	// parse pub key

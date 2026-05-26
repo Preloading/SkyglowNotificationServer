@@ -47,6 +47,9 @@ func CreateHTTPServer(_keys configPkg.CryptoKeys, _config configPkg.Config) {
 	app.Post("/register_token_for_feedback", RegisterForFeedback)             // service calls this
 	app.Post("/set_feedback_provider_for_token", SetFeedbackProviderForToken) // server calls this to another server, sends domain.
 	app.Post("/relay_feedback", RelayedFeedback)                              // sends feedback from a server to another server.
+	app.Get("/snd/server_cert.pem", func(c *fiber.Ctx) error {
+		return c.SendFile("keys/server_public_key.pem")
+	})
 
 	app.Listen(":7878")
 }

@@ -14,3 +14,6 @@ KEY_PATH: keys
 
 # this is only postgres now, sorry!
 DB_DSN: 
+
+# if your hosting new, you should set this to 1 to avoid some additional complexities
+ENABLE_OLD_PROTOCOL: 0
