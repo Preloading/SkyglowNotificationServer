@@ -42,7 +42,7 @@ func CreateUser(c *fiber.Ctx) error {
 		}
 	}
 
-	if !(req.Version <= 2) {
+	if !(req.Version >= 2) {
 		return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "outdated client!"}, isPlist, format)
 	}
 
