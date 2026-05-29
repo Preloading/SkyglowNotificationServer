@@ -106,18 +106,6 @@ func handleConnection(c net.Conn) {
 
 }
 
-func sendNotificationToClient(c net.Conn, data router.DataToSend) error {
-	// dataToSend := Notification{
-	// 	Message:    Message{Type: 2},
-	// 	DataToSend: data,
-	// }
-
-	// if err := sendMessageToClient(c, dataToSend, 2); err != nil {
-	// 	return err
-	// }
-	return nil
-}
-
 // func decryptWithPrivateKey(data []byte, pkey *rsa.PrivateKey) (*[]byte, error) {
 // 	// Decrypt the data using PKCS1 OAEP
 // 	decrypted, err := rsa.DecryptOAEP(

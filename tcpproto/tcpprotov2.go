@@ -17,16 +17,30 @@ import (
 	db "github.com/Preloading/SkyglowNotificationServer/database"
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/google/uuid"
+	"howett.net/plist"
 )
 
 const (
-	V2ProtocolVersion = 0x02
+	V2ProtocolVersion                    = 0x02
+	V2MinProtocolVersion                 = 0x02
+	SERVER_DISCONNECT_NORMAL             = 0x00
+	SERVER_DISCONNECT_AUTH_FAIL          = 0x01
+	SERVER_DISCONNECT_PROTOCOL_ERROR     = 0x02
+	SERVER_DISCONNECT_INTERNAL_ERROR     = 0x03
+	SERVER_DISCONNECT_REPLACED           = 0x04
+	SERVER_DISCONNECT_VERSION_MISMATCHED = 0x05
 )
 
 type clientMessage struct {
 	messageType uint8
 	data        []byte
 	offset      uint
+}
+
+type tokenUpdate struct {
+	tag        uint8
+	routingKey []byte
+	bundle_id  string
 }
 
 func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
@@ -43,6 +57,25 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 	loginPhase := 0
 	isAuthenticated := false
 
+	readNotifications := func() {
+		for msg := range channel {
+			if msg.Disconnect {
+				log.Printf("Disconnecting from %s\n", c.RemoteAddr().String())
+				return
+			}
+			log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
+			if err := sendNotificationToClientV1(c, msg.DataToSend); err != nil {
+				if err.Error() == "write error" {
+					log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
+					return
+				}
+				log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
+				sendMessageToClientV1(c, nil, 4)
+				return
+			}
+		}
+	}
+
 	// lastContactTimestamp := time.Now().Unix()
 
 	// send hello
@@ -54,6 +87,10 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 	}
 
 	for {
+		if err := c.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+			log.Printf("Error setting read deadline for %s: %v\n", c.RemoteAddr().String(), err)
+			return
+		}
 		header := make([]byte, 8)
 		n, err := c.Read(header)
 		if err != nil {
@@ -75,9 +112,9 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		}
 
 		// check version
-		if !(header[1] <= 0x02) {
+		if !(header[1] <= V2MinProtocolVersion) {
 			log.Printf("Version of client %s is too outdated", c.RemoteAddr().String())
-			disconnectClientV2(c, 0x02, 0)
+			disconnectClientV2(c, SERVER_DISCONNECT_VERSION_MISMATCHED, 0)
 			return
 		}
 
@@ -85,7 +122,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 
 		if messageSize > 4096 { // spec says this is the max packet size, can probably be risen later on
 			log.Printf("Protocol violaton: message size too big (%d vs 4096) for %s", messageSize, c.RemoteAddr().String())
-			disconnectClientV2(c, 0x02, 0)
+			disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 			return
 		}
 		messageId := header[2]
@@ -93,12 +130,12 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		n, err = c.Read(messageData)
 		if err != nil {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
-			disconnectClientV2(c, 0x02, 0)
+			disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 			return
 		}
 		if n != int(messageSize) {
 			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
-			disconnectClientV2(c, 0x02, 0)
+			disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 			return
 		}
 
@@ -121,7 +158,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		// unauthenticated
 		case 0x28: // register
 			if isAuthenticated {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
@@ -130,14 +167,14 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 
 			pubInterface, err := x509.ParsePKIXPublicKey(rawPubKey)
 			if err != nil {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
 			var ok bool
 			clientPubKey, ok = pubInterface.(*rsa.PublicKey)
 			if !ok {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
@@ -156,26 +193,26 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			}
 		case 0x20: // login
 			if loginPhase != 0 {
-				disconnectClientV2(c, 0x01, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
 			userAddress = message.readStringWithLen(uint(message.readUint16()))
 			if userAddress == "" {
-				disconnectClientV2(c, 0x01, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 			clockSkewedTS := message.readInt64()
 			currentTimestamp := time.Now().UTC().Unix()
 			if clockSkewedTS > currentTimestamp+300 || clockSkewedTS < currentTimestamp-300 {
-				disconnectClientV2(c, 0x01, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 
 			// load client data
 			device, err = db.GetUser(userAddress)
 			if err != nil {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 
@@ -197,7 +234,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			loginPhase = 1
 		case 0x29: // register resp
 			if !isRegistering || isAuthenticated {
-				disconnectClientV2(c, 0x01, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
@@ -205,7 +242,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			authUnixTimestamp := message.readInt64()
 			currentTimestamp := time.Now().UTC().Unix()
 			if authUnixTimestamp > currentTimestamp+300 || authUnixTimestamp < currentTimestamp-300 {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 
@@ -217,7 +254,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			msgHash := sha256.New()
 			_, err = msgHash.Write(expectedData)
 			if err != nil {
-				disconnectClientV2(c, 0x03, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 				return
 			}
 			msgHashSum := msgHash.Sum(nil)
@@ -225,7 +262,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			err = rsa.VerifyPSS(clientPubKey, crypto.SHA256, msgHashSum, signature, nil)
 			if err != nil {
 				fmt.Println("could not verify signature: ", err)
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 			// creating the user time
@@ -236,30 +273,36 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 
 			err := db.SaveNewUser(userAddress, *clientPubKey)
 			if err != nil {
-				disconnectClientV2(c, 0x03, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 				return
 			}
 
 			// load client data. is it a bit wasteful? kinda. do i care? no
 			device, err = db.GetUser(userAddress)
 			if err != nil {
-				disconnectClientV2(c, 0x03, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 				return
 			}
 
 			clientPubKey = device.PublicKey
 
 			isAuthenticated = true
+			loginPhase = 99999
 
 			log.Printf("%s has registered a new account (%s)\n", c.RemoteAddr().String(), userAddress)
 
-			payload := []byte{0x00, 0x00, 0x00, 0x02} // why
+			// start notification stream
+			go readNotifications()
+			router.AddConnection(userAddress, channel)
+			defer router.RemoveConnection(userAddress)
+
+			payload := []byte{0x00, 0x00, 0x00, V2ProtocolVersion} // why
 			addToPayload(&payload, uint16(len(userAddress)))
 			addToPayload(&payload, userAddress)
 			sendMessageToClientV2(c, payload, 0x18)
 		case 0x21: // login resp
 			if loginPhase != 1 {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
 			}
 
@@ -267,7 +310,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			authUnixTimestamp := message.readInt64()
 			currentTimestamp := time.Now().UTC().Unix()
 			if authUnixTimestamp > currentTimestamp+300 || authUnixTimestamp < currentTimestamp-300 {
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 
@@ -280,7 +323,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			msgHash := sha256.New()
 			_, err = msgHash.Write(expectedData)
 			if err != nil {
-				disconnectClientV2(c, 0x03, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 				return
 			}
 			msgHashSum := msgHash.Sum(nil)
@@ -288,7 +331,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			err = rsa.VerifyPSS(clientPubKey, crypto.SHA256, msgHashSum, signature, nil)
 			if err != nil {
 				fmt.Println("could not verify signature: ", err)
-				disconnectClientV2(c, 0x02, 0)
+				disconnectClientV2(c, SERVER_DISCONNECT_AUTH_FAIL, 0)
 				return
 			}
 
@@ -297,7 +340,71 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 
 			isAuthenticated = true
 			loginPhase = 99999
+
+			// start notification stream
+			go readNotifications()
+			router.AddConnection(userAddress, channel)
+			defer router.RemoveConnection(userAddress)
+
 			sendMessageToClientV2(c, nil, 0x12)
+
+		// authenticated land
+		case 0x22: // poll
+			if !isAuthenticated {
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
+				return
+			}
+
+			pollAfter := message.readUint64()
+
+			unackedNotifications, err := db.GetUnacknowledgedMessagesAfterUnixTime(userAddress, time.Unix(int64(pollAfter), 0))
+			if err != nil {
+				fmt.Println(err.Error())
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
+				return
+			}
+			if len(unackedNotifications) == 0 {
+				continue
+			}
+			for _, unackedNotification := range unackedNotifications {
+				log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
+				if unackedNotification.IsEncrypted {
+					sendNotificationToClientV2(c, router.DataToSend{
+						IsEncrypted: unackedNotification.IsEncrypted,
+
+						Ciphertext: *unackedNotification.Ciphertext,
+						DataType:   *unackedNotification.DataType,
+						IV:         *unackedNotification.IV,
+
+						DeviceAddress: unackedNotification.DeviceAddress,
+						RoutingKey:    unackedNotification.RoutingKey,
+						MessageId:     unackedNotification.MessageId,
+
+						CreatedAt: unackedNotification.CreatedAt,
+					})
+				} else {
+					sendNotificationToClientV2(c, router.DataToSend{
+						IsEncrypted: unackedNotification.IsEncrypted,
+
+						Data: unackedNotification.Data,
+
+						DeviceAddress: unackedNotification.DeviceAddress,
+						RoutingKey:    unackedNotification.RoutingKey,
+						MessageId:     unackedNotification.MessageId,
+
+						CreatedAt: unackedNotification.CreatedAt,
+					})
+				}
+			}
+		case 0x23:
+			uuidRawBytes := message.readBytesWithLen(16)
+			// status := message.readUint8()
+			messageId, err := uuid.ParseBytes(uuidRawBytes)
+			if err != nil {
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
+				return
+			}
+			db.AckMessage(messageId.String(), userAddress)
 		case 0x00:
 
 		default:
@@ -399,6 +506,9 @@ func addToPayload(payload *[]byte, data interface{}) {
 		*payload = append(*payload, v)
 	case string:
 		*payload = append(*payload, []byte(v)...)
+	case time.Time:
+		u := v.Unix()
+		*payload = append(*payload, byte(u>>56), byte(u>>48), byte(u>>40), byte(u>>32), byte(u>>24), byte(u>>16), byte(u>>8), byte(u))
 
 	default:
 		panic("type not implemented in tcpprotov2")
@@ -436,14 +546,42 @@ func sendMessageToClientV2(c net.Conn, payload []byte, messageType uint8) error 
 	return nil
 }
 
-// func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
-// 	dataToSend := Notification{
-// 		Message:    MessageV1{Type: 2},
-// 		DataToSend: data,
-// 	}
+func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
+	payload := data.RoutingKey
+	addToPayload(&payload, data.MessageId) // todo: fix dis
 
-// 	if err := sendMessageToClientV1(c, dataToSend, 2); err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
+	messageId := uuid.MustParse(data.MessageId)
+	uuidRaw, err := messageId.MarshalBinary()
+	if err != nil {
+		panic(err)
+	}
+	addToPayload(&payload, uuidRaw)
+	addToPayload(&payload, data.CreatedAt)
+	addToPayload(&payload, uint64(0)) // expiration
+	flags := byte(0x00)
+	if data.IsEncrypted {
+		flags |= (1 << 0) // set encryption byte at pos 0
+	}
+	addToPayload(&payload, flags)
+
+	// encode the payload. i'm not using what was originally done. period.
+	addToPayload(&payload, uint8(0x04)) // reserved
+
+	if data.IsEncrypted {
+		addToPayload(&payload, uint32(len(data.Ciphertext)))
+		addToPayload(&payload, data.Ciphertext)
+		addToPayload(&payload, data.IV)
+	} else {
+		unencryptedNotification, err := plist.Marshal(data.Data, plist.BinaryFormat)
+		if err != nil {
+			return err
+		}
+		addToPayload(&payload, uint32(len(unencryptedNotification)))
+		addToPayload(&payload, unencryptedNotification)
+	}
+
+	if err := sendMessageToClientV2(c, payload, 0x13); err != nil {
+		return err
+	}
+	return nil
+}

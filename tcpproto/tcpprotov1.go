@@ -1,3 +1,5 @@
+// WARNING!!! This protocol is now considered depricated, and is only here to allow for a smooth transition to the new one. It may be permanently removed in the future without notice
+
 package tcpproto
 
 import (
@@ -182,7 +184,7 @@ func handleV1Connection(c net.Conn, channel chan router.DataUpdate, startByte by
 									return
 								}
 								log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
-								if err := sendNotificationToClient(c, msg.DataToSend); err != nil {
+								if err := sendNotificationToClientV1(c, msg.DataToSend); err != nil {
 									if err.Error() == "write error" {
 										log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
 										return
@@ -221,7 +223,7 @@ func handleV1Connection(c net.Conn, channel chan router.DataUpdate, startByte by
 					for _, unackedNotification := range unackedNotifications {
 						log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
 						if unackedNotification.IsEncrypted {
-							sendNotificationToClient(c, router.DataToSend{
+							sendNotificationToClientV1(c, router.DataToSend{
 								IsEncrypted: unackedNotification.IsEncrypted,
 
 								Ciphertext: *unackedNotification.Ciphertext,
@@ -233,7 +235,7 @@ func handleV1Connection(c net.Conn, channel chan router.DataUpdate, startByte by
 								MessageId:     unackedNotification.MessageId,
 							})
 						} else {
-							sendNotificationToClient(c, router.DataToSend{
+							sendNotificationToClientV1(c, router.DataToSend{
 								IsEncrypted: unackedNotification.IsEncrypted,
 
 								Data: unackedNotification.Data,

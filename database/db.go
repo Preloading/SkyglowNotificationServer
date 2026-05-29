@@ -185,9 +185,13 @@ func GetToken(routing_token []byte) (*NotificationToken, error) {
 }
 
 func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
+	return GetUnacknowledgedMessagesAfterUnixTime(device_address, time.Unix(0, 0))
+}
+
+func GetUnacknowledgedMessagesAfterUnixTime(device_address string, time time.Time) ([]QueuedMessage, error) {
 	var messages []QueuedMessage
 
-	rows, err := db.Query("SELECT * FROM queued_messages WHERE device_address = $1", device_address)
+	rows, err := db.Query("SELECT * FROM queued_messages WHERE device_address = $1 AND created_at > $2", device_address, time)
 	if err != nil {
 		return messages, err
 	}

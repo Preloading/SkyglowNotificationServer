@@ -41,6 +41,8 @@ type DataToSend struct {
 	MessageId string   `json:"message_id,omitempty" plist:"message_id"` // Don't let other users set this!
 	TotalHops int      `json:"total_hops,omitempty" plist:"-"`
 	Hops      []string `json:"hops,omitempty" plist:"-"`
+
+	CreatedAt time.Time `json:"-" plist:"-"`
 }
 
 type DataUpdate struct {
@@ -134,6 +136,7 @@ func SendMessageToRouter(msg DataToSend) error {
 
 func SendMessageToLocalRouter(msg DataToSend) error {
 	msg.MessageId = uuid.New().String()
+	msg.CreatedAt = time.Now()
 
 	// decode routing key hex
 	routingKey, err := hex.DecodeString(msg.RoutingKeyStr)
@@ -170,7 +173,7 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 	if msg.IsEncrypted {
 		err := db.QueueEncryptedMessage(db.QueuedMessage{
 			MessageId: msg.MessageId,
-			CreatedAt: time.Now(),
+			CreatedAt: msg.CreatedAt,
 
 			IsEncrypted: true,
 
@@ -187,7 +190,7 @@ func SendMessageToLocalRouter(msg DataToSend) error {
 	} else {
 		err := db.QueueUnencryptedMessage(db.QueuedMessage{
 			MessageId: msg.MessageId,
-			CreatedAt: time.Now(),
+			CreatedAt: msg.CreatedAt,
 
 			IsEncrypted: false,
 
