@@ -33,13 +33,14 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 	// var rsaClientPublicKey *rsa.PublicKey
 	// client info
 	userAddress := ""
-	// device := &db.Device{}
+	device := &db.Device{}
 	// userLang := ""
 	// // auth
 	var authenticationNonce []byte
 	var clientPubKey *rsa.PublicKey
 
 	isRegistering := false
+	loginPhase := 0
 	isAuthenticated := false
 
 	// lastContactTimestamp := time.Now().Unix()
@@ -153,10 +154,50 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			if err := sendMessageToClientV2(c, authenticationNonce, 0x11); err != nil {
 				return
 			}
+		case 0x20: // login
+			if loginPhase != 0 {
+				disconnectClientV2(c, 0x01, 0)
+				return
+			}
 
-		case 0x29:
-			if !isRegistering || isAuthenticated {
+			userAddress = message.readStringWithLen(uint(message.readUint16()))
+			if userAddress == "" {
+				disconnectClientV2(c, 0x01, 0)
+				return
+			}
+			clockSkewedTS := message.readInt64()
+			currentTimestamp := time.Now().UTC().Unix()
+			if clockSkewedTS > currentTimestamp+300 || clockSkewedTS < currentTimestamp-300 {
+				disconnectClientV2(c, 0x01, 0)
+				return
+			}
+
+			// load client data
+			device, err = db.GetUser(userAddress)
+			if err != nil {
 				disconnectClientV2(c, 0x02, 0)
+				return
+			}
+
+			clientPubKey = device.PublicKey
+
+			// create challenge
+			authenticationNonce = make([]byte, 32)
+			_, err = rand.Read(authenticationNonce)
+			if err != nil {
+				panic(fmt.Errorf("could not generate nonce")) // worthy of a panic
+			}
+
+			log.Printf("%s is attempting to login to %s\n", c.RemoteAddr().String(), device.DeviceAddress)
+
+			// send da challenge
+			if err := sendMessageToClientV2(c, authenticationNonce, 0x11); err != nil {
+				return
+			}
+			loginPhase = 1
+		case 0x29: // register resp
+			if !isRegistering || isAuthenticated {
+				disconnectClientV2(c, 0x01, 0)
 				return
 			}
 
@@ -164,7 +205,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			authUnixTimestamp := message.readInt64()
 			currentTimestamp := time.Now().UTC().Unix()
 			if authUnixTimestamp > currentTimestamp+300 || authUnixTimestamp < currentTimestamp-300 {
-				disconnectClientV2(c, 0x01, 0)
+				disconnectClientV2(c, 0x02, 0)
 				return
 			}
 
@@ -199,6 +240,15 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 				return
 			}
 
+			// load client data. is it a bit wasteful? kinda. do i care? no
+			device, err = db.GetUser(userAddress)
+			if err != nil {
+				disconnectClientV2(c, 0x03, 0)
+				return
+			}
+
+			clientPubKey = device.PublicKey
+
 			isAuthenticated = true
 
 			log.Printf("%s has registered a new account (%s)\n", c.RemoteAddr().String(), userAddress)
@@ -207,6 +257,47 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			addToPayload(&payload, uint16(len(userAddress)))
 			addToPayload(&payload, userAddress)
 			sendMessageToClientV2(c, payload, 0x18)
+		case 0x21: // login resp
+			if loginPhase != 1 {
+				disconnectClientV2(c, 0x02, 0)
+				return
+			}
+
+			// check the sig
+			authUnixTimestamp := message.readInt64()
+			currentTimestamp := time.Now().UTC().Unix()
+			if authUnixTimestamp > currentTimestamp+300 || authUnixTimestamp < currentTimestamp-300 {
+				disconnectClientV2(c, 0x02, 0)
+				return
+			}
+
+			signature := message.readBytesWithLen(uint(message.readUint16()))
+			timestampEncoded := make([]byte, 8)
+			binary.BigEndian.PutUint64(timestampEncoded, uint64(authUnixTimestamp))
+			expectedData := append(authenticationNonce, []byte(device.DeviceAddress)...)
+			expectedData = append(expectedData, timestampEncoded...)
+
+			msgHash := sha256.New()
+			_, err = msgHash.Write(expectedData)
+			if err != nil {
+				disconnectClientV2(c, 0x03, 0)
+				return
+			}
+			msgHashSum := msgHash.Sum(nil)
+
+			err = rsa.VerifyPSS(clientPubKey, crypto.SHA256, msgHashSum, signature, nil)
+			if err != nil {
+				fmt.Println("could not verify signature: ", err)
+				disconnectClientV2(c, 0x02, 0)
+				return
+			}
+
+			// we passed :D
+			clientPubKey = device.PublicKey
+
+			isAuthenticated = true
+			loginPhase = 99999
+			sendMessageToClientV2(c, nil, 0x12)
 		case 0x00:
 
 		default:
