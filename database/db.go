@@ -184,6 +184,25 @@ func GetToken(routing_token []byte) (*NotificationToken, error) {
 	return &notificationToken, nil
 }
 
+func GetAllTokens(device_address string) (*[]NotificationToken, error) {
+
+	rows, err := db.Query("SELECT * FROM notification_tokens WHERE device_address = $1", device_address)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	notificationTokens := []NotificationToken{}
+	for rows.Next() {
+		notificationToken := NotificationToken{}
+		if err := rows.Scan(&notificationToken.RoutingToken, &notificationToken.DeviceAddress, &notificationToken.FeedbackProviderAddress, &notificationToken.NotificationType, &notificationToken.AppBundleId, &notificationToken.IssuedAt, &notificationToken.IsValid, &notificationToken.LastUsed, &notificationToken.MarkedForRemovalAt); err != nil {
+			return nil, err
+		}
+		notificationTokens = append(notificationTokens, notificationToken)
+	}
+	return &notificationTokens, nil
+}
+
 func GetUnacknowledgedMessages(device_address string) ([]QueuedMessage, error) {
 	return GetUnacknowledgedMessagesAfterUnixTime(device_address, time.Unix(0, 0))
 }
@@ -341,6 +360,46 @@ func MarkTokenForRemoval(routingToken []byte) error {
 		time.Now(), routingToken,
 	)
 	return err
+}
+
+func SyncTokens(removed_tokens [][]byte, createdTokens []NotificationToken, modifiedTokens []NotificationToken) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, removed_token := range removed_tokens {
+		if _, err = tx.Exec("UPDATE notification_tokens SET is_valid = false, marked_for_removal_at = $1  WHERE routing_token = $2",
+			time.Now(), removed_token,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, created_token := range createdTokens {
+		if _, err = db.Exec("INSERT INTO notification_tokens (device_address, bundle_id, routing_token, allowed_notification_types, is_valid, issued_at) VALUES ($1, $2, $3, $4, $5, $6)",
+			created_token.DeviceAddress, created_token.AppBundleId, created_token.RoutingToken, created_token.NotificationType, true, time.Now(),
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, modified_token := range modifiedTokens {
+		if _, err = db.Exec(`
+			UPDATE notification_tokens 
+			SET (allowed_notification_types, is_valid, marked_for_removal_at) = ($1, $2, $3) 
+			WHERE routing_token = $4`,
+			modified_token.NotificationType,
+			modified_token.IsValid,
+			modified_token.MarkedForRemovalAt,
+			modified_token.RoutingToken,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func HideTheTracksOfKilledTokens(ourServer string) error {

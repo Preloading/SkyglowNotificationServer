@@ -15,6 +15,7 @@ import (
 	"time"
 
 	db "github.com/Preloading/SkyglowNotificationServer/database"
+	"github.com/Preloading/SkyglowNotificationServer/feedbackmgr"
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/google/uuid"
 	"howett.net/plist"
@@ -38,9 +39,9 @@ type clientMessage struct {
 }
 
 type tokenUpdate struct {
-	tag        uint8
-	routingKey []byte
-	bundle_id  string
+	enabledState uint8
+	routingKey   []byte
+	bundle_id    string
 }
 
 func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
@@ -56,6 +57,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 	isRegistering := false
 	loginPhase := 0
 	isAuthenticated := false
+	reloadedTokens := []tokenUpdate{}
 
 	readNotifications := func() {
 		for msg := range channel {
@@ -396,7 +398,12 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 					})
 				}
 			}
-		case 0x23:
+		case 0x23: // C_ACK
+			if !isAuthenticated {
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
+				return
+			}
+
 			uuidRawBytes := message.readBytesWithLen(16)
 			// status := message.readUint8()
 			messageId, err := uuid.ParseBytes(uuidRawBytes)
@@ -405,6 +412,83 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 				return
 			}
 			db.AckMessage(messageId.String(), userAddress)
+		case 0x2b:
+			if !isAuthenticated {
+				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
+				return
+			}
+
+			flag := message.readUint8()
+			entriesInChunk := message.readUint16()
+			for i := 0; i < int(entriesInChunk); i++ {
+				tag := message.readUint8()
+				reloadedTokens = append(reloadedTokens, tokenUpdate{
+					enabledState: tag,
+					routingKey:   message.readBytesWithLen(32),
+					bundle_id:    message.readStringWithLen(uint(message.readUint16())),
+				})
+				log.Printf("a new token %x\n", reloadedTokens[0].routingKey)
+			}
+			if flag == 0x00 { // completed download
+				currentTokensPtr, err := db.GetAllTokens(userAddress)
+				if err != nil {
+					log.Fatalf("failed to fetch tokens for user %s\n", userAddress)
+					disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
+					return
+				}
+
+				currentTokens := *currentTokensPtr
+
+				oldTokensMap := make(map[string]db.NotificationToken, len(currentTokens))
+				for _, oldToken := range currentTokens {
+					oldTokensMap[string(oldToken.RoutingToken)] = oldToken
+				}
+
+				createdTokens := []db.NotificationToken{}
+				modfiedTokens := []db.NotificationToken{}
+
+				for _, newToken := range reloadedTokens {
+					keyStr := string(newToken.routingKey)
+					oldVersion, ok := oldTokensMap[keyStr]
+					if ok {
+						if oldVersion.DeviceAddress != userAddress {
+							disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
+							return
+						}
+						oldVersion.NotificationType = int(newToken.enabledState)
+						oldVersion.IsValid = true
+						modfiedTokens = append(modfiedTokens, oldVersion)
+
+						delete(oldTokensMap, keyStr)
+					} else {
+						newToken := db.NotificationToken{
+							RoutingToken:            newToken.routingKey,
+							DeviceAddress:           userAddress,
+							FeedbackProviderAddress: nil,
+							NotificationType:        int(newToken.enabledState),
+							AppBundleId:             newToken.bundle_id,
+							IssuedAt:                time.Now(),
+							IsValid:                 true,
+							MarkedForRemovalAt:      nil,
+							LastUsed:                nil,
+						}
+						createdTokens = append(createdTokens, newToken)
+					}
+				}
+
+				removedTokens := [][]byte{}
+
+				for _, removedToken := range oldTokensMap {
+					removedTokens = append(removedTokens, removedToken.RoutingToken)
+					feedbackmgr.RemoveToken(0, "unknown", removedToken.RoutingToken, removedToken.DeviceAddress, removedToken.FeedbackProviderAddress)
+				}
+
+				if err := db.SyncTokens(removedTokens, createdTokens, modfiedTokens); err != nil {
+					log.Fatalf("failed to sync tokens for user %s.\n", userAddress)
+					disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
+					return
+				}
+			}
 		case 0x00:
 
 		default:
@@ -504,6 +588,8 @@ func addToPayload(payload *[]byte, data interface{}) {
 		*payload = append(*payload, byte(v))
 	case byte:
 		*payload = append(*payload, v)
+	case []byte:
+		*payload = append(*payload, []byte(v)...)
 	case string:
 		*payload = append(*payload, []byte(v)...)
 	case time.Time:
@@ -511,7 +597,7 @@ func addToPayload(payload *[]byte, data interface{}) {
 		*payload = append(*payload, byte(u>>56), byte(u>>48), byte(u>>40), byte(u>>32), byte(u>>24), byte(u>>16), byte(u>>8), byte(u))
 
 	default:
-		panic("type not implemented in tcpprotov2")
+		panic(fmt.Sprintf("type %T not implemented in tcpprotov2", data))
 	}
 }
 
@@ -547,8 +633,9 @@ func sendMessageToClientV2(c net.Conn, payload []byte, messageType uint8) error 
 }
 
 func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
-	payload := data.RoutingKey
-	addToPayload(&payload, data.MessageId) // todo: fix dis
+	payload := []byte{}
+	addToPayload(&payload, data.RoutingKey)
+	addToPayload(&payload, data.MessageId)
 
 	messageId := uuid.MustParse(data.MessageId)
 	uuidRaw, err := messageId.MarshalBinary()

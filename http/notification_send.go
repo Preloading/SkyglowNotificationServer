@@ -20,7 +20,7 @@ func NotificationSend(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"status": "sucess",
+		"status": "success",
 		"data":   data,
 	})
 }
