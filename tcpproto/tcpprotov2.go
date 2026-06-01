@@ -89,7 +89,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 	}
 
 	for {
-		if err := c.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		if err := c.SetReadDeadline(time.Now().Add(60 * time.Minute)); err != nil {
 			log.Printf("Error setting read deadline for %s: %v\n", c.RemoteAddr().String(), err)
 			return
 		}
