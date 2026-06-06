@@ -18,7 +18,6 @@ import (
 	"github.com/Preloading/SkyglowNotificationServer/feedbackmgr"
 	"github.com/Preloading/SkyglowNotificationServer/router"
 	"github.com/google/uuid"
-	"howett.net/plist"
 )
 
 const (
@@ -658,21 +657,19 @@ func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
 		case "tlv":
 			addToPayload(&payload, uint8(0x03))
 		}
-	} else {
-		addToPayload(&payload, uint8(0x02))
-	}
-
-	if data.IsEncrypted {
 		addToPayload(&payload, uint32(len(data.Ciphertext)))
 		addToPayload(&payload, data.Ciphertext)
 		addToPayload(&payload, data.IV)
 	} else {
-		unencryptedNotification, err := plist.Marshal(data.Data, plist.BinaryFormat)
-		if err != nil {
-			return err
-		}
-		addToPayload(&payload, uint32(len(unencryptedNotification)))
-		addToPayload(&payload, unencryptedNotification)
+		addToPayload(&payload, uint8(0x03))
+
+		tlv := ConvertToTLV(data.Data)
+		// unencryptedNotification, err := plist.Marshal(data.Data, plist.BinaryFormat)
+		// if err != nil {
+		// 	return err
+		// }
+		addToPayload(&payload, uint32(len(tlv)))
+		addToPayload(&payload, tlv)
 	}
 
 	if err := sendMessageToClientV2(c, payload, 0x13); err != nil {

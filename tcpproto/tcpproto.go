@@ -62,8 +62,8 @@ func handleConnection(c net.Conn) {
 	// var rsaClientPublicKey *rsa.PublicKey
 	defer close(channel)
 
-	handleV2Connection(c, channel)
-	return
+	// handleV2Connection(c, channel)
+	// return
 
 	// send hello in old format for compatibility
 	if err := sendMessageToClientV1(c, nil, 0); err != nil {
