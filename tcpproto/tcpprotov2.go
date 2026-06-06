@@ -66,13 +66,13 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 				return
 			}
 			log.Printf("[%s] Sending Message from channel\n", c.RemoteAddr().String())
-			if err := sendNotificationToClientV1(c, msg.DataToSend); err != nil {
+			if err := sendNotificationToClientV2(c, msg.DataToSend); err != nil {
 				if err.Error() == "write error" {
 					log.Printf("Write error to %s, disconnecting...\n", c.RemoteAddr().String())
 					return
 				}
 				log.Printf("Error sending notification to %s: %v\n", c.RemoteAddr().String(), err)
-				sendMessageToClientV1(c, nil, 4)
+				disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 				return
 			}
 		}
@@ -406,7 +406,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 
 			uuidRawBytes := message.readBytesWithLen(16)
 			// status := message.readUint8()
-			messageId, err := uuid.ParseBytes(uuidRawBytes)
+			messageId, err := uuid.FromBytes(uuidRawBytes)
 			if err != nil {
 				disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 				return
@@ -603,39 +603,37 @@ func addToPayload(payload *[]byte, data interface{}) {
 
 func sendMessageToClientV2(c net.Conn, payload []byte, messageType uint8) error {
 	// header
-	_, err := c.Write([]byte{0x53, V2ProtocolVersion, byte(messageType), 0x00})
-	if err != nil {
-		return err
-	}
+
+	messageData := []byte{0x53, V2ProtocolVersion, byte(messageType), 0x00,
+		0x00, 0x00, 0x00, 0x00} // placeholder for length
 
 	// length
-	messageLen := make([]byte, 4)
 	length := len(payload)
 	log.Printf("Length %d\n", length)
-	messageLen[0] = byte(length >> 24)
-	messageLen[1] = byte(length >> 16)
-	messageLen[2] = byte(length >> 8)
-	messageLen[3] = byte(length)
+	messageData[4] = byte(length >> 24)
+	messageData[5] = byte(length >> 16)
+	messageData[6] = byte(length >> 8)
+	messageData[7] = byte(length)
 
-	_, err = c.Write(messageLen)
+	messageData = append(messageData, payload...)
+	_, err := c.Write(messageData)
 	if err != nil {
 		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
-		return errors.New("write error in len")
-	}
-
-	_, err = c.Write(payload)
-	if err != nil {
-		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
-		return errors.New("write error in data")
+		return errors.New("write error sending message")
 	}
 	log.Printf("sent a packet with 0x%x\n", messageType)
 	return nil
 }
 
+// SGPayloadFormatTLV       = 0x00, depricated
+// SGPayloadFormatJSON      = 0x01,
+// SGPayloadFormatPlist     = 0x02,
+// SGPayloadFormatTLVStruct = 0x03,
+
 func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
 	payload := []byte{}
 	addToPayload(&payload, data.RoutingKey)
-	addToPayload(&payload, data.MessageId)
+	// addToPayload(&payload, data.MessageId)
 
 	messageId := uuid.MustParse(data.MessageId)
 	uuidRaw, err := messageId.MarshalBinary()
@@ -651,8 +649,18 @@ func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
 	}
 	addToPayload(&payload, flags)
 
-	// encode the payload. i'm not using what was originally done. period.
-	addToPayload(&payload, uint8(0x04)) // reserved
+	if data.IsEncrypted {
+		switch data.DataType {
+		case "json":
+			addToPayload(&payload, uint8(0x01))
+		case "plist":
+			addToPayload(&payload, uint8(0x02))
+		case "tlv":
+			addToPayload(&payload, uint8(0x03))
+		}
+	} else {
+		addToPayload(&payload, uint8(0x02))
+	}
 
 	if data.IsEncrypted {
 		addToPayload(&payload, uint32(len(data.Ciphertext)))
