@@ -664,6 +664,7 @@ func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
 		addToPayload(&payload, uint8(0x03))
 
 		tlv := ConvertToTLV(data.Data)
+		fmt.Printf("tlv: %x\n", tlv)
 		// unencryptedNotification, err := plist.Marshal(data.Data, plist.BinaryFormat)
 		// if err != nil {
 		// 	return err
