@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -81,18 +82,18 @@ func handleConnection(c net.Conn) {
 
 		// ignore whatever was sent within this packet for the client to like me <3
 		header := make([]byte, 7)
+		if _, err := io.ReadFull(c, header); err != nil {
+			return
+		}
 		messageSize := uint32(header[3])<<24 | uint32(header[4])<<16 | uint32(header[5])<<8 | uint32(header[6])
-		if messageSize < 4096 { // we probably guessed wrong, so reject it
+		if messageSize > 4096 { // we probably guessed wrong, so reject it
 			disconnectClientV2(c, 0x02, 0)
 			return
 		}
-		data := make([]byte, messageSize)
-		n, err := c.Read(data)
-		if err != nil {
-			return
-		}
-		if n != int(messageSize) {
-			return
+		if messageSize > 0 {
+			if _, err := io.CopyN(io.Discard, c, int64(messageSize)); err != nil {
+				return
+			}
 		}
 
 		// finally send it off to the actual handler
