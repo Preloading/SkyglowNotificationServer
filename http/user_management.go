@@ -42,9 +42,9 @@ func CreateUser(c *fiber.Ctx) error {
 		}
 	}
 
-	if !(req.Version >= 2) {
-		return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "outdated client!"}, isPlist, format)
-	}
+	// if !(req.Version >= 2) {
+	// 	return SendAsRequestType(c.Status(fiber.ErrBadRequest.Code), StatusOnly{Status: "outdated client!"}, isPlist, format)
+	// }
 
 	// parse pub key
 	block, _ := pem.Decode([]byte(req.PubKey))
