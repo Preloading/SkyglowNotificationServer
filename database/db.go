@@ -135,7 +135,7 @@ func SaveNewUser(device_address string, public_key rsa.PublicKey) error {
 }
 
 func UpdateLanguage(device_address string, language string) error {
-	_, err := db.Exec("UPDATE devices WHERE device_address = $1 SET lang = $2", device_address, language)
+	_, err := db.Exec("UPDATE devices SET lang = $2 WHERE device_address = $1", language, device_address)
 
 	return err
 }
