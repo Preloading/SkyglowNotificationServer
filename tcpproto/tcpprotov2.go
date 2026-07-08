@@ -95,26 +95,26 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		header := make([]byte, 8)
 		n, err := c.Read(header)
 		if err != nil {
-			log.Printf("Read error from %s: %v\n", c.RemoteAddr().String(), err)
+			log.Printf("Read error in packet from %s: %v, disconnecting\n", c.RemoteAddr().String(), err)
 			disconnectClientV2(c, 0x02, 0)
 			return
 		}
 		if n != 8 {
-			log.Printf("Header len mismatch from %s: %v\n", c.RemoteAddr().String(), err)
+			log.Printf("Header len mismatch in packet from %s: %v, disconnecting\n", c.RemoteAddr().String(), err)
 			disconnectClientV2(c, 0x02, 0)
 			return
 		}
 
 		// magic value
 		if header[0] != 0x53 {
-			log.Printf("Magic value missing from %s", c.RemoteAddr().String())
+			log.Printf("Magic value missing in packet from %s, disconnecting....", c.RemoteAddr().String())
 			disconnectClientV2(c, 0x02, 0)
 			return
 		}
 
 		// check version
 		if !(header[1] <= V2MinProtocolVersion) {
-			log.Printf("Version of client %s is too outdated", c.RemoteAddr().String())
+			log.Printf("Version of client with IP %s is too outdated, disconnecting...", c.RemoteAddr().String())
 			disconnectClientV2(c, SERVER_DISCONNECT_VERSION_MISMATCHED, 0)
 			return
 		}
@@ -122,7 +122,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		messageSize := uint32(header[4])<<24 | uint32(header[5])<<16 | uint32(header[6])<<8 | uint32(header[7]) // hate. this was copilot, if there's a nicer way, PR.
 
 		if messageSize > 4096 { // spec says this is the max packet size, can probably be risen later on
-			log.Printf("Protocol violaton: message size too big (%d vs 4096) for %s", messageSize, c.RemoteAddr().String())
+			log.Printf("Protocol violaton: message size too big (%d vs 4096) for connection from IP %s", messageSize, c.RemoteAddr().String())
 			disconnectClientV2(c, SERVER_DISCONNECT_PROTOCOL_ERROR, 0)
 			return
 		}
@@ -147,7 +147,6 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 		}
 
 		// lastContactTimestamp = time.Now().Unix() // feed the dog
-		log.Printf("got a packet 0x%x\n", messageId)
 		switch messageId {
 		// global protocol stuff
 		case 0x27: // ping
@@ -368,7 +367,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 				continue
 			}
 			for _, unackedNotification := range unackedNotifications {
-				log.Printf("[%s] Sending Message from database\n", c.RemoteAddr().String())
+				log.Printf("Sending %s a message from database\n", device.DeviceAddress)
 				if unackedNotification.IsEncrypted {
 					sendNotificationToClientV2(c, router.DataToSend{
 						IsEncrypted: unackedNotification.IsEncrypted,
@@ -608,7 +607,6 @@ func sendMessageToClientV2(c net.Conn, payload []byte, messageType uint8) error 
 
 	// length
 	length := len(payload)
-	log.Printf("Length %d\n", length)
 	messageData[4] = byte(length >> 24)
 	messageData[5] = byte(length >> 16)
 	messageData[6] = byte(length >> 8)
@@ -620,7 +618,6 @@ func sendMessageToClientV2(c net.Conn, payload []byte, messageType uint8) error 
 		log.Printf("Write error to %s: %v\n", c.RemoteAddr().String(), err)
 		return errors.New("write error sending message")
 	}
-	log.Printf("sent a packet with 0x%x\n", messageType)
 	return nil
 }
 
@@ -664,7 +661,6 @@ func sendNotificationToClientV2(c net.Conn, data router.DataToSend) error {
 		addToPayload(&payload, uint8(0x03))
 
 		tlv := ConvertToTLV(data.Data)
-		fmt.Printf("tlv: %x\n", tlv)
 		// unencryptedNotification, err := plist.Marshal(data.Data, plist.BinaryFormat)
 		// if err != nil {
 		// 	return err
