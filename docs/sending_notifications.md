@@ -47,10 +47,9 @@ With this, you should send a POST request to that server, as `{http_addr}/send`.
 	},
 	"routing_key": "ffe6d6ebf6b0acc38bfc0793ac8989b95c39238586cb645d1b4df9253ba6ac4b",
 	"server_address": "preloading.dev"
-}
 ```
 
-The `routing_key` and `server_address` should be from the getting the routing info step. The contents of `data` is the exact same from APNS. You should check the [APNS docs](https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification) for what to put in here. You will get a response like
+The `routing_key` and `server_address` should be from the getting the routing info step. The `server_address` is **NOT** the server that you trust, but the one you extracted from the token. You should however, send the notification through the server that you personally trust. The contents of `data` is the exact same from APNS. You should check the [APNS docs](https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification) for what to put in here. You will get a response like
 ```json
 {
 	"data": {
