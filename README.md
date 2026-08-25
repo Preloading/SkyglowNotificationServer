@@ -53,6 +53,6 @@ services:
 3. Configure the server txt record
 With your SERVER_ADDRESS you set, create a TXT record the looks like _sgn.{{SERVER_ADDRESS}}, with the following data:
 ```
-"tcp_addr=tcp.sgn.example.com tcp_port=7373 http_addr=https://sgn.example.com"
+"tcp_addr=69.69.69.69 tcp_port=7373 http_addr=https://sgn.example.com"
 ```
 each pointing to your server.
