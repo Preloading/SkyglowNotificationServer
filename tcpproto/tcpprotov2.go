@@ -430,7 +430,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 			if flag == 0x00 { // completed download
 				currentTokensPtr, err := db.GetAllTokens(userAddress)
 				if err != nil {
-					log.Fatalf("failed to fetch tokens for user %s\n", userAddress)
+					log.Printf("failed to fetch tokens for user %s\n", userAddress)
 					disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 					return
 				}
@@ -482,7 +482,7 @@ func handleV2Connection(c net.Conn, channel chan router.DataUpdate) {
 				}
 
 				if err := db.SyncTokens(removedTokens, createdTokens, modfiedTokens); err != nil {
-					log.Fatalf("failed to sync tokens for user %s.\n", userAddress)
+					log.Printf("failed to sync tokens for user %s.\n", userAddress)
 					disconnectClientV2(c, SERVER_DISCONNECT_INTERNAL_ERROR, 0)
 					return
 				}
