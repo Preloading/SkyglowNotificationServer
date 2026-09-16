@@ -35,7 +35,7 @@ services:
   server:
     image: ghcr.io/preloading/skyglownotificationserver:dev
     environment:
-      - SGN_SERVER_ADDRESS={{YOUR_SERVER_ADDRESS}}
+      - SGN_SERVER_ADDRESS={{SERVER_ADDRESS}} # this is your DOMAIN, not IP
       - SGN_TCP_PORT=21138
       - SGN_KEY_PATH=/config/keys/
       - SGN_DB_TYPE=postgres
